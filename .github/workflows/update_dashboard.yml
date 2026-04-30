@@ -28,7 +28,7 @@ jobs:
           pip install pandas numpy plotly
       
       - name: 🔧 Generar dashboard
-        run: python scripts/generate_dashboard.py
+        run: python generate_dashboard.py
       
       - name: 📤 Subir cambios a GitHub
         run: |
