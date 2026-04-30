@@ -2,8 +2,8 @@ name: Update Dashboard
 
 on:
   schedule:
-    - cron: '*/30 * * * *'   # Cada 30 minutos automáticamente
-  workflow_dispatch:           # También se puede lanzar a mano desde GitHub
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -11,7 +11,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -29,8 +28,8 @@ jobs:
 
       - name: Commit & push index.html
         run: |
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add index.html
-          git diff --cached --quiet || git commit -m "🤖 Dashboard update $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git diff --cached --quiet || git commit -m "Dashboard update $(date -u '+%Y-%m-%d %H:%M UTC')"
           git push
