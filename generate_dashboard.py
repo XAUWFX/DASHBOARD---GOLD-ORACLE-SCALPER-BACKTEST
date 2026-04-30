@@ -6,7 +6,7 @@ from datetime import datetime
 # ─────────────────────────────────────────────
 # CONFIGURACIÓN — edita solo estas líneas
 # ─────────────────────────────────────────────
-SHEET_ID = "TU_SHEET_ID_AQUI"   # ID de tu Google Sheet (ver README)
+SHEET_ID = "1ox6Abqq3I6ElRwYc9a3lxes5n3AtspQLRskzBY90pxI"   # ID de tu Google Sheet (ver README)
 SHEETS   = ["Tendencia", "Momentum", "Reversion", "Breakout"]
 # ─────────────────────────────────────────────
 
