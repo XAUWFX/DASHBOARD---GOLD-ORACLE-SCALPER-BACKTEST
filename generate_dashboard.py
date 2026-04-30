@@ -19,7 +19,16 @@ def csv_url(sheet_name):
 def load_sheet(name):
     try:
         df = pd.read_csv(csv_url(name))
-        df.columns = ["fecha", "tipoSenal", "resultado", "razon", "tradeId"]
+        if df.empty or len(df.columns) == 0:
+            return pd.DataFrame(columns=["fecha","tipoSenal","resultado","razon","tradeId","win","signal"])
+        # Tomar solo las primeras columnas sin importar cuántas haya
+        cols_needed = min(5, len(df.columns))
+        df = df.iloc[:, :cols_needed]
+        col_names = ["fecha","tipoSenal","resultado","razon","tradeId"]
+        df.columns = col_names[:cols_needed]
+        for col in col_names:
+            if col not in df.columns:
+                df[col] = None
         df["fecha"]     = pd.to_datetime(df["fecha"], errors="coerce")
         df["resultado"] = pd.to_numeric(df["resultado"], errors="coerce").fillna(0)
         df["win"]       = df["resultado"] > 0
@@ -28,7 +37,6 @@ def load_sheet(name):
     except Exception as e:
         print(f"⚠️  No se pudo cargar la hoja '{name}': {e}")
         return pd.DataFrame(columns=["fecha","tipoSenal","resultado","razon","tradeId","win","signal"])
-
 def metrics(df):
     total   = len(df)
     if total == 0:
