@@ -1,4 +1,3 @@
-python
 import pandas as pd
 import json
 import calendar
