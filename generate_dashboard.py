@@ -1,108 +1,133 @@
+python
 import pandas as pd
 import json
+import calendar
 from datetime import datetime
 from urllib.parse import quote
 
-# ─────────────────────────────────────────────
-# CONFIGURACIÓN — solo cambia el SHEET_ID
-# ─────────────────────────────────────────────
+# ─── CAMBIA SOLO ESTO ─────────────────────────────────────────────────────
 SHEET_ID = "1ox6Abqq3I6ElRwYc9a3lxes5n3AtspQLRskzBY90pxI"
-SIGNALS  = ["Trend", "Momentum", "Reversal"]
-TPSL     = {
-    "Trend":    {"tp": 0.50, "sl": 0.20},
-    "Momentum": {"tp": 0.50, "sl": 0.30},
-    "Reversal": {"tp": 0.25, "sl": 0.25},
-}
-# ─────────────────────────────────────────────
+SIGNALS  = ["Trend", "Momentum", "Reversal", "Cont.3M", "Cont.5M"]
+# ──────────────────────────────────────────────────────────────────────────
 
 def csv_url(name):
     return (f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
             f"/gviz/tq?tqx=out:csv&sheet={quote(name)}")
 
-EMPTY = pd.DataFrame(columns=["fecha","tipoSenal","direccion","razon","pctFijo","pctTV","tradeId","win","signal"])
+EMPTY = pd.DataFrame(columns=["fecha","hora","tipoSenal","direccion","razon","pctTV","tradeId","win"])
 
 def load_sheet(name):
     try:
         raw = pd.read_csv(csv_url(name), header=0)
         if raw.empty or len(raw.columns) == 0:
             return EMPTY.copy()
-        cols = ["fecha","tipoSenal","direccion","razon","pctFijo","pctTV","tradeId"]
+        cols = ["fecha","hora","tipoSenal","direccion","razon","pctTV","tradeId"]
         raw  = raw.iloc[:, :len(cols)]
         raw.columns = cols[:len(raw.columns)]
         for c in cols:
             if c not in raw.columns:
                 raw[c] = None
-        raw["fecha"]   = pd.to_datetime(raw["fecha"], dayfirst=True, errors="coerce")
-        raw["pctFijo"] = pd.to_numeric(raw["pctFijo"], errors="coerce").fillna(0)
-        raw["pctTV"]   = pd.to_numeric(raw["pctTV"],   errors="coerce").fillna(0)
-        raw["win"]     = raw["razon"].astype(str).str.contains("Take Profit", na=False)
-        raw["signal"]  = name
+        raw["fecha"] = pd.to_datetime(raw["fecha"], dayfirst=True, errors="coerce")
+        raw["pctTV"] = pd.to_numeric(raw["pctTV"], errors="coerce").fillna(0)
+        raw["win"]   = raw["razon"].astype(str).str.contains("Take Profit", na=False)
         return raw.dropna(subset=["fecha"])
     except Exception as ex:
-        print(f"Could not load '{name}': {ex}")
+        print(f"Cannot load '{name}': {ex}")
         return EMPTY.copy()
 
-def metrics(df):
+now    = datetime.utcnow()
+dfs    = {n: load_sheet(n) for n in SIGNALS}
+all_df = pd.concat(list(dfs.values()), ignore_index=True) \
+         if any(not d.empty for d in dfs.values()) else EMPTY.copy()
+
+def global_metrics(df):
     if df.empty or "win" not in df.columns:
-        return dict(total=0, wins=0, losses=0, winrate=0,
-                    cumPctFixed=0, cumPctTV=0, profitFactor=0, firstDate="No data yet")
+        return dict(total=0, wins=0, losses=0, winrate=0, profitFactor=0, firstDate="No data yet")
     total  = len(df)
     wins   = df[df["win"] == True]
     losses = df[df["win"] == False]
-    grossP = wins["pctFijo"].sum()        if len(wins)   > 0 else 0
-    grossL = abs(losses["pctFijo"].sum()) if len(losses) > 0 else 0
+    grossP = wins["pctTV"].sum()        if len(wins)   > 0 else 0
+    grossL = abs(losses["pctTV"].sum()) if len(losses) > 0 else 0
     first  = df.sort_values("fecha")["fecha"].iloc[0].strftime("%d/%m/%Y") if total > 0 else "No data yet"
     return dict(
-        total        = total,
-        wins         = len(wins),
-        losses       = len(losses),
-        winrate      = round(len(wins)/total*100, 1) if total > 0 else 0,
-        cumPctFixed  = round(df["pctFijo"].sum(), 2),
-        cumPctTV     = round(df["pctTV"].sum(), 2),
-        profitFactor = round(grossP/grossL, 2) if grossL > 0 else 0,
-        firstDate    = first,
+        total=total, wins=len(wins), losses=len(losses),
+        winrate=round(len(wins)/total*100, 1) if total > 0 else 0,
+        profitFactor=round(grossP/grossL, 2) if grossL > 0 else 0,
+        firstDate=first
     )
 
-def equity(df, col):
-    if df.empty or col not in df.columns:
-        return []
-    s = df.sort_values("fecha").copy()
-    s["cum"] = s[col].cumsum().round(2)
-    return [{"x": str(r["fecha"].date()), "y": float(r["cum"])} for _, r in s.iterrows()]
+def month_metrics(df):
+    if df.empty:
+        return dict(total=0, wins=0, losses=0)
+    cur = df[(df["fecha"].dt.month == now.month) & (df["fecha"].dt.year == now.year)]
+    if cur.empty:
+        return dict(total=0, wins=0, losses=0)
+    return dict(
+        total=len(cur),
+        wins=len(cur[cur["win"] == True]),
+        losses=len(cur[cur["win"] == False])
+    )
 
-def monthly(df):
+def weekly_pnl(df):
+    if df.empty:
+        return []
+    cur = df[(df["fecha"].dt.month == now.month) & (df["fecha"].dt.year == now.year)]
+    dim = calendar.monthrange(now.year, now.month)[1]
+    mn  = now.strftime("%b")
+    result = []
+    for i, (ws, we) in enumerate([(1,7),(8,14),(15,21),(22,28),(29,dim)]):
+        if ws > dim:
+            break
+        we = min(we, dim)
+        wt = cur[(cur["fecha"].dt.day >= ws) & (cur["fecha"].dt.day <= we)]
+        result.append({
+            "label":  f"Week {i+1}  ·  {mn} {ws}–{we}",
+            "pnl":    round(float(wt["pctTV"].sum()), 2) if len(wt) > 0 else 0,
+            "trades": len(wt),
+            "wins":   len(wt[wt["win"] == True]) if len(wt) > 0 else 0
+        })
+    return result
+
+def monthly_pnl(df):
     if df.empty:
         return []
     s = df.copy().dropna(subset=["fecha"])
     if s.empty:
         return []
     s["month"] = s["fecha"].dt.to_period("M")
-    g = s.groupby("month")["pctFijo"].sum().reset_index()
-    return [{"x": str(r["month"]), "y": round(float(r["pctFijo"]), 2)} for _, r in g.iterrows()]
+    result = []
+    for period, g in s.groupby("month"):
+        result.append({
+            "label":  period.strftime("%b %Y"),
+            "pnl":    round(float(g["pctTV"].sum()), 2),
+            "trades": len(g),
+            "wins":   len(g[g["win"] == True])
+        })
+    return result
 
-# ── Load data ──────────────────────────────────────────────────────────────
-dfs    = {n: load_sheet(n) for n in SIGNALS}
-all_df = pd.concat(list(dfs.values()), ignore_index=True) \
-         if any(not d.empty for d in dfs.values()) else EMPTY.copy()
+def annual_equity(df):
+    mp  = monthly_pnl(df)
+    cum = 0
+    pts = []
+    for m in mp:
+        cum = round(cum + m["pnl"], 2)
+        pts.append({"x": m["label"], "y": cum})
+    return pts
+
+gm = global_metrics(all_df)
+mm = month_metrics(all_df)
+wk = weekly_pnl(all_df)
+mp = monthly_pnl(all_df)
+eq = annual_equity(all_df)
 
 data = {
-    "updated": datetime.utcnow().strftime("%d/%m/%Y %H:%M UTC"),
-    "global": {
-        "metrics":     metrics(all_df),
-        "equityFixed": equity(all_df, "pctFijo"),
-        "equityTV":    equity(all_df, "pctTV"),
-        "monthly":     monthly(all_df),
-    },
-    "signals": {
-        n: {
-            "metrics":     metrics(dfs[n]),
-            "equityFixed": equity(dfs[n], "pctFijo"),
-            "equityTV":    equity(dfs[n], "pctTV"),
-            "monthly":     monthly(dfs[n]),
-        } for n in SIGNALS
-    }
+    "updated":       now.strftime("%d/%m/%Y %H:%M UTC"),
+    "globalMetrics": gm,
+    "monthMetrics":  mm,
+    "weekly":        wk,
+    "monthly":       mp,
+    "equity":        eq
 }
-
 J = json.dumps(data, ensure_ascii=False)
 
 html = f"""<!DOCTYPE html>
@@ -110,196 +135,255 @@ html = f"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Oracle Algo — Live Backtest</title>
+<title>Oracle Algo — Gold Oracle Scalper V1</title>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Raleway:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-:root{{--bg:#07070f;--sur:#0d0d1a;--brd:#1c1c35;--gld:#c9a84c;--gld2:#e8c97a;--gdim:#7a5e25;--pur:#6c5ce7;--grn:#00b894;--red:#d63031;--mut:#55557a;--sub:#8888aa;--txt:#e0e0f0}}
+:root{{--bg:#07070f;--sur:#0d0d1a;--brd:#1c1c35;--gld:#c9a84c;--gld2:#e8c97a;--gdim:#7a5e25;--grn:#00b894;--red:#d63031;--mut:#55557a;--sub:#8888aa;--txt:#e0e0f0}}
 *,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
-body{{background:var(--bg);color:var(--txt);font-family:'Raleway',sans-serif;min-height:100vh;background-image:radial-gradient(ellipse 70% 40% at 50% 0%,rgba(108,92,231,.06) 0%,transparent 60%),radial-gradient(ellipse 50% 30% at 90% 90%,rgba(201,168,76,.04) 0%,transparent 50%)}}
-header{{padding:1rem 2.5rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.8rem;border-bottom:1px solid var(--brd);background:rgba(7,7,15,.97);backdrop-filter:blur(12px);position:sticky;top:0;z-index:100}}
+body{{background:var(--bg);color:var(--txt);font-family:'Raleway',sans-serif;min-height:100vh;
+  background-image:radial-gradient(ellipse 70% 40% at 50% 0%,rgba(108,92,231,.06) 0%,transparent 60%)}}
+header{{padding:1.1rem 2.5rem;display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:.8rem;border-bottom:1px solid var(--brd);
+  background:rgba(7,7,15,.97);backdrop-filter:blur(12px);position:sticky;top:0;z-index:100}}
 .logo{{display:flex;align-items:center;gap:.9rem}}
-.lsvg{{width:40px;height:40px;flex-shrink:0}}
-.ltxt h1{{font-family:'Cinzel',serif;font-size:1.1rem;font-weight:700;letter-spacing:.18em;color:var(--gld2);text-transform:uppercase}}
-.ltxt p{{font-family:'JetBrains Mono',monospace;font-size:.6rem;color:var(--mut);letter-spacing:.07em;margin-top:.15rem}}
-.badge{{font-family:'JetBrains Mono',monospace;font-size:.62rem;color:var(--sub);display:flex;align-items:center;gap:.4rem}}
-.dot{{width:6px;height:6px;border-radius:50%;background:var(--grn);flex-shrink:0;animation:pulse 2s infinite}}
+.lsvg{{width:38px;height:38px;flex-shrink:0}}
+.ltxt h1{{font-family:'Cinzel',serif;font-size:1rem;font-weight:700;letter-spacing:.18em;color:var(--gld2);text-transform:uppercase}}
+.ltxt p{{font-family:'JetBrains Mono',monospace;font-size:.58rem;color:var(--mut);letter-spacing:.07em;margin-top:.1rem}}
+.badge{{font-family:'JetBrains Mono',monospace;font-size:.6rem;color:var(--sub);display:flex;align-items:center;gap:.4rem}}
+.dot{{width:6px;height:6px;border-radius:50%;background:var(--grn);animation:pulse 2s infinite}}
 @keyframes pulse{{0%,100%{{box-shadow:0 0 0 0 rgba(0,184,148,.5)}}50%{{box-shadow:0 0 0 5px rgba(0,184,148,0)}}}}
-nav{{display:flex;justify-content:center;padding:1.8rem 1rem 0;gap:0;border-bottom:1px solid var(--brd);flex-wrap:wrap}}
-.tab{{padding:.6rem 1.6rem;font-family:'Cinzel',serif;font-size:.68rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);background:transparent;border:1px solid transparent;border-bottom:none;cursor:pointer;transition:all .2s;position:relative;bottom:-1px;white-space:nowrap}}
-.tab:hover{{color:var(--sub)}}
-.tab.active{{color:var(--gld2);background:var(--sur);border-color:var(--brd);border-bottom-color:var(--sur)}}
-.tab.active::after{{content:'';position:absolute;bottom:0;left:25%;right:25%;height:1px;background:var(--gld);opacity:.6}}
-main{{max-width:1280px;margin:0 auto;padding:2.5rem 1.5rem}}
-.panel{{display:none;animation:fi .3s ease}}.panel.active{{display:block}}
-@keyframes fi{{from{{opacity:0;transform:translateY(6px)}}to{{opacity:1;transform:translateY(0)}}}}
-.ph{{text-align:center;margin-bottom:2.5rem;padding-bottom:1.5rem;border-bottom:1px solid var(--brd);position:relative}}
-.ph::after{{content:'';position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);width:60px;height:1px;background:var(--gld)}}
-.ph-t{{font-family:'Cinzel',serif;font-size:1.5rem;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--gld2);margin-bottom:.5rem}}
-.ph-s{{font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--mut);line-height:1.6}}
-.ph-s span{{color:var(--sub)}}
-.kg{{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:1rem;margin-bottom:2rem}}
-.kpi{{background:var(--sur);border:1px solid var(--brd);border-radius:10px;padding:1.2rem 1rem;transition:border-color .2s,transform .15s;position:relative;overflow:hidden}}
-.kpi::before{{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(201,168,76,.25),transparent)}}
+main{{max-width:1260px;margin:0 auto;padding:2.5rem 1.5rem}}
+.hero{{text-align:center;margin-bottom:2.5rem;padding-bottom:1.8rem;border-bottom:1px solid var(--brd);position:relative}}
+.hero::after{{content:'';position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);width:80px;height:1px;background:var(--gld)}}
+.hero-title{{font-family:'Cinzel',serif;font-size:1.4rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--gld2);margin-bottom:.5rem}}
+.hero-sub{{font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--mut)}}
+.hero-sub span{{color:var(--sub)}}
+.kpi-row{{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1rem;margin-bottom:2rem}}
+.kpi{{background:var(--sur);border:1px solid var(--brd);border-radius:10px;padding:1.2rem 1rem;
+  position:relative;overflow:hidden;transition:border-color .2s,transform .15s}}
+.kpi::before{{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(201,168,76,.3),transparent)}}
 .kpi:hover{{border-color:var(--gdim);transform:translateY(-1px)}}
-.kl{{font-family:'JetBrains Mono',monospace;font-size:.58rem;color:var(--mut);text-transform:uppercase;letter-spacing:.1em;margin-bottom:.5rem}}
-.kv{{font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:600;line-height:1;color:var(--txt)}}
+.kl{{font-family:'JetBrains Mono',monospace;font-size:.55rem;color:var(--mut);
+  text-transform:uppercase;letter-spacing:.1em;margin-bottom:.5rem}}
+.kv{{font-family:'JetBrains Mono',monospace;font-size:1.45rem;font-weight:600;color:var(--txt)}}
 .kv.gold{{color:var(--gld2)}}.kv.green{{color:var(--grn)}}.kv.red{{color:var(--red)}}
-.kn{{font-family:'JetBrains Mono',monospace;font-size:.55rem;color:var(--mut);margin-top:.3rem;line-height:1.4}}
-.cg{{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:2rem}}
-@media(max-width:700px){{.cg{{grid-template-columns:1fr}}}}
-.cc{{background:var(--sur);border:1px solid var(--brd);border-radius:10px;padding:1.4rem}}
-.ct{{font-family:'Cinzel',serif;font-size:.6rem;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.12em;margin-bottom:1rem}}
-.cw{{position:relative;height:195px}}
-.sgt{{font-family:'Cinzel',serif;font-size:.68rem;letter-spacing:.15em;color:var(--mut);text-transform:uppercase;text-align:center;margin:1.5rem 0 1rem}}
-.sg{{display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:1rem}}
-.sc{{background:var(--sur);border:1px solid var(--brd);border-radius:10px;padding:1.3rem;transition:border-color .2s}}
-.sc:hover{{border-color:var(--gdim)}}
-.sn{{font-family:'Cinzel',serif;font-size:.75rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gld2);margin-bottom:.9rem;display:flex;align-items:center;gap:.6rem}}
-.sd{{width:7px;height:7px;border-radius:50%;flex-shrink:0}}
-.sr{{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:.72rem;padding:.28rem 0;border-bottom:1px solid rgba(255,255,255,.04)}}
-.sr:last-child{{border-bottom:none}}.sr span:first-child{{color:var(--mut)}}
-footer{{text-align:center;padding:2.5rem 1rem;border-top:1px solid var(--brd);margin-top:1rem}}
-.fl{{font-family:'Cinzel',serif;font-size:.75rem;letter-spacing:.2em;color:var(--gdim);text-transform:uppercase;margin-bottom:.6rem}}
-.fc{{font-family:'JetBrains Mono',monospace;font-size:.6rem;color:var(--mut);line-height:1.8}}
-@media(max-width:560px){{.kg{{grid-template-columns:1fr 1fr}}.tab{{padding:.5rem .9rem;font-size:.62rem}}header{{padding:.9rem 1rem}}}}
+.kn{{font-family:'JetBrains Mono',monospace;font-size:.52rem;color:var(--mut);margin-top:.25rem}}
+.two-col{{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:2rem}}
+@media(max-width:700px){{.two-col{{grid-template-columns:1fr}}}}
+.card{{background:var(--sur);border:1px solid var(--brd);border-radius:10px;padding:1.5rem}}
+.card-title{{font-family:'Cinzel',serif;font-size:.65rem;font-weight:600;color:var(--mut);
+  text-transform:uppercase;letter-spacing:.12em;margin-bottom:1.2rem;
+  border-bottom:1px solid var(--brd);padding-bottom:.7rem}}
+.pnl-row{{display:flex;justify-content:space-between;align-items:center;
+  padding:.45rem 0;border-bottom:1px solid rgba(255,255,255,.04);
+  font-family:'JetBrains Mono',monospace;font-size:.75rem}}
+.pnl-row:last-child{{border-bottom:none}}
+.pnl-label{{color:var(--sub)}}
+.pnl-val{{font-weight:600}}
+.pnl-meta{{font-size:.6rem;color:var(--mut);margin-left:.5rem}}
+.pnl-empty{{font-family:'JetBrains Mono',monospace;font-size:.7rem;color:var(--mut);
+  text-align:center;padding:1.5rem 0}}
+.eq-wrap{{background:var(--sur);border:1px solid var(--brd);border-radius:10px;
+  padding:1.5rem;margin-bottom:2rem}}
+.eq-title{{font-family:'Cinzel',serif;font-size:.65rem;font-weight:600;color:var(--mut);
+  text-transform:uppercase;letter-spacing:.12em;margin-bottom:1.2rem}}
+.eq-chart{{position:relative;height:240px}}
+footer{{text-align:center;padding:2rem 1rem;border-top:1px solid var(--brd)}}
+.fl{{font-family:'Cinzel',serif;font-size:.7rem;letter-spacing:.2em;color:var(--gdim);
+  text-transform:uppercase;margin-bottom:.5rem}}
+.fc{{font-family:'JetBrains Mono',monospace;font-size:.58rem;color:var(--mut);line-height:1.8}}
+@media(max-width:560px){{.kpi-row{{grid-template-columns:1fr 1fr}}header{{padding:.9rem 1rem}}}}
 </style>
 </head>
 <body>
+
 <header>
   <div class="logo">
-    <svg class="lsvg" viewBox="0 0 40 40" fill="none">
-      <circle cx="20" cy="20" r="19" stroke="#c9a84c" stroke-width=".8" opacity=".35"/>
-      <circle cx="20" cy="20" r="13" stroke="#c9a84c" stroke-width=".8" opacity=".55"/>
-      <path d="M20 5L23.5 13L20 11L16.5 13Z" fill="#e8c97a"/>
-      <path d="M20 35L16.5 27L20 29L23.5 27Z" fill="#c9a84c" opacity=".55"/>
-      <path d="M5 20L13 16.5L11 20L13 23.5Z" fill="#c9a84c" opacity=".4"/>
-      <path d="M35 20L27 23.5L29 20L27 16.5Z" fill="#c9a84c" opacity=".4"/>
-      <circle cx="20" cy="20" r="2.5" fill="#e8c97a"/>
-      <circle cx="20" cy="20" r="5" stroke="#c9a84c" stroke-width=".6" opacity=".4"/>
-      <line x1="20" y1="8" x2="20" y2="32" stroke="#c9a84c" stroke-width=".4" opacity=".3" stroke-dasharray="2 3"/>
-      <line x1="8" y1="20" x2="32" y2="20" stroke="#c9a84c" stroke-width=".4" opacity=".3" stroke-dasharray="2 3"/>
+    <svg class="lsvg" viewBox="0 0 38 38" fill="none">
+      <circle cx="19" cy="19" r="18" stroke="#c9a84c" stroke-width=".8" opacity=".35"/>
+      <circle cx="19" cy="19" r="12" stroke="#c9a84c" stroke-width=".8" opacity=".55"/>
+      <path d="M19 4L22 11L19 9.5L16 11Z" fill="#e8c97a"/>
+      <path d="M19 34L16 27L19 28.5L22 27Z" fill="#c9a84c" opacity=".55"/>
+      <circle cx="19" cy="19" r="2.5" fill="#e8c97a"/>
+      <circle cx="19" cy="19" r="5" stroke="#c9a84c" stroke-width=".5" opacity=".4"/>
+      <line x1="19" y1="7" x2="19" y2="31" stroke="#c9a84c" stroke-width=".4" opacity=".3" stroke-dasharray="2 3"/>
+      <line x1="7" y1="19" x2="31" y2="19" stroke="#c9a84c" stroke-width=".4" opacity=".3" stroke-dasharray="2 3"/>
     </svg>
     <div class="ltxt">
       <h1>Oracle Algo</h1>
-      <p>XAUUSD · Gold Oracle Scalper · Live Backtest</p>
+      <p>XAUUSD · Gold Oracle Scalper V1 · Live Backtest</p>
     </div>
   </div>
-  <div class="badge"><span class="dot"></span>Live · Updated: <span id="ts" style="color:var(--sub);margin-left:.3rem"></span></div>
+  <div class="badge">
+    <span class="dot"></span>
+    Live · Updated: <span id="ts" style="color:var(--sub);margin-left:.3rem"></span>
+  </div>
 </header>
-<nav>
-  <button class="tab active" data-tab="global">Global</button>
-  <button class="tab" data-tab="Trend">Trend</button>
-  <button class="tab" data-tab="Momentum">Momentum</button>
-  <button class="tab" data-tab="Reversal">Reversal</button>
-</nav>
+
 <main>
-  <div id="global"   class="panel active"></div>
-  <div id="Trend"    class="panel"></div>
-  <div id="Momentum" class="panel"></div>
-  <div id="Reversal" class="panel"></div>
+  <div class="hero">
+    <div class="hero-title">Gold Oracle Scalper V1 Backtest</div>
+    <div class="hero-sub">
+      Tracking since <span id="since"></span> &nbsp;·&nbsp; All signals combined &nbsp;·&nbsp; Starting May 2026
+    </div>
+  </div>
+
+  <div class="kpi-row" id="kpis"></div>
+
+  <div class="two-col">
+    <div class="card">
+      <div class="card-title">⚡ Weekly P&L — Current Month</div>
+      <div id="weekly-content"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">📅 Monthly P&L History</div>
+      <div id="monthly-content"></div>
+    </div>
+  </div>
+
+  <div class="eq-wrap">
+    <div class="eq-title">📈 Annual Equity Curve — Cumulative Performance</div>
+    <div class="eq-chart"><canvas id="eqChart"></canvas></div>
+  </div>
 </main>
+
 <footer>
   <div class="fl">Oracle Algo</div>
   <div class="fc">
     © 2025–2026 Oracle Algo · oraclealgo.com · All rights reserved.<br>
-    Gold Oracle Scalper Strategy · XAUUSD · Real-time tracking<br>
+    Gold Oracle Scalper V1 · XAUUSD · Real-time tracking from May 2026<br>
     Past results do not guarantee future performance. For informational purposes only.
   </div>
 </footer>
+
 <script>
-const D={J};
-const SC={{"Trend":"#c9a84c","Momentum":"#6c5ce7","Reversal":"#00b894"}};
-document.getElementById("ts").textContent=D.updated;
-document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>{{
-  document.querySelectorAll(".tab,.panel").forEach(e=>e.classList.remove("active"));
-  b.classList.add("active");
-  document.getElementById(b.dataset.tab).classList.add("active");
-}}));
-function pct(v){{return(v>=0?"+":"")+v.toFixed(2)+"%"}}
-function cc(v){{return v>0?"green":v<0?"red":""}}
-function renderKPIs(m,el,title,sub){{
-  const pf=(m.profitFactor===0&&m.wins===0)?"—":m.profitFactor;
-  el.innerHTML+=`<div class="ph"><div class="ph-t">${{title}}</div><div class="ph-s">${{sub}}</div></div>
-  <div class="kg">
-    <div class="kpi"><div class="kl">Cumul. % (Fixed TP/SL)</div><div class="kv ${{cc(m.cumPctFixed)}}">${{pct(m.cumPctFixed)}}</div><div class="kn">Based on fixed TP/SL in strategy</div></div>
-    <div class="kpi"><div class="kl">Cumul. % (TradingView)</div><div class="kv ${{cc(m.cumPctTV)}}">${{pct(m.cumPctTV)}}</div><div class="kn">TradingView calculation method</div></div>
-    <div class="kpi"><div class="kl">Win Rate</div><div class="kv gold">${{m.winrate}}%</div></div>
-    <div class="kpi"><div class="kl">Profit Factor</div><div class="kv gold">${{pf}}</div></div>
-    <div class="kpi"><div class="kl">Total Trades</div><div class="kv">${{m.total}}</div></div>
-    <div class="kpi"><div class="kl">Winners</div><div class="kv green">${{m.wins}}</div></div>
-    <div class="kpi"><div class="kl">Losers</div><div class="kv red">${{m.losses}}</div></div>
+const D = {J};
+document.getElementById("ts").textContent    = D.updated;
+document.getElementById("since").textContent = D.globalMetrics.firstDate;
+
+const gm = D.globalMetrics;
+const mm = D.monthMetrics;
+
+function pct(v) {{ return (v >= 0 ? "+" : "") + v.toFixed(2) + "%" }}
+function cc(v)  {{ return v > 0 ? "green" : v < 0 ? "red" : "" }}
+
+// ── KPIs ──────────────────────────────────────────────────────────────────
+const kpiData = [
+  {{ label:"Win Rate",          val: gm.winrate + "%",         cls:"gold",  note:"All signals · All time" }},
+  {{ label:"Profit Factor",     val: gm.profitFactor || "—",   cls:"gold",  note:"All signals · All time" }},
+  {{ label:"Monthly Trades",    val: mm.total,                 cls:"",      note:"Current month total" }},
+  {{ label:"Monthly Wins",      val: mm.wins,                  cls:"green", note:"Current month" }},
+  {{ label:"Monthly Losses",    val: mm.losses,                cls:"red",   note:"Current month" }},
+  {{ label:"Total Trades",      val: gm.total,                 cls:"",      note:"Since tracking started" }},
+];
+const kRow = document.getElementById("kpis");
+kpiData.forEach(k => {{
+  kRow.innerHTML += `
+  <div class="kpi">
+    <div class="kl">${{k.label}}</div>
+    <div class="kv ${{k.cls}}">${{k.val}}</div>
+    <div class="kn">${{k.note}}</div>
   </div>`;
-}}
-let CH={{}};
-function mk(id,type,labels,ds){{
-  if(CH[id])CH[id].destroy();
-  const ctx=document.getElementById(id).getContext("2d");
-  CH[id]=new Chart(ctx,{{type,data:{{labels,datasets:ds}},options:{{
-    responsive:true,maintainAspectRatio:false,
-    plugins:{{legend:{{display:false}},tooltip:{{callbacks:{{label:c=>" "+(c.parsed.y>=0?"+":"")+c.parsed.y.toFixed(2)+"%"}}}}}},
-    scales:{{
-      x:{{ticks:{{color:"#55557a",maxTicksLimit:5,font:{{family:"JetBrains Mono",size:9}}}},grid:{{color:"rgba(255,255,255,.04)"}}}},
-      y:{{ticks:{{color:"#55557a",font:{{family:"JetBrains Mono",size:9}},callback:v=>v+"%"}},grid:{{color:"rgba(255,255,255,.04)"}}}}
-    }}
-  }}}});
-}}
-function renderCharts(px,eF,eT,mo,col){{
-  document.getElementById(px+"_c").innerHTML=`
-  <div class="cg">
-    <div class="cc"><div class="ct">Equity Curve — Fixed TP/SL</div><div class="cw"><canvas id="${{px}}_e1"></canvas></div></div>
-    <div class="cc"><div class="ct">Equity Curve — TradingView Method</div><div class="cw"><canvas id="${{px}}_e2"></canvas></div></div>
-    <div class="cc"><div class="ct">Monthly P&L — Fixed TP/SL</div><div class="cw"><canvas id="${{px}}_mo"></canvas></div></div>
-  </div>`;
-  const c1=document.getElementById(px+"_e1").getContext("2d"),g1=c1.createLinearGradient(0,0,0,195);
-  g1.addColorStop(0,col+"38");g1.addColorStop(1,col+"00");
-  mk(px+"_e1","line",eF.map(p=>p.x),[{{data:eF.map(p=>p.y),borderColor:col,borderWidth:2,backgroundColor:g1,fill:true,pointRadius:0,tension:.4}}]);
-  const c2=document.getElementById(px+"_e2").getContext("2d"),g2=c2.createLinearGradient(0,0,0,195);
-  g2.addColorStop(0,"#6c5ce738");g2.addColorStop(1,"#6c5ce700");
-  mk(px+"_e2","line",eT.map(p=>p.x),[{{data:eT.map(p=>p.y),borderColor:"#6c5ce7",borderWidth:2,backgroundColor:g2,fill:true,pointRadius:0,tension:.4}}]);
-  mk(px+"_mo","bar",mo.map(p=>p.x),[{{data:mo.map(p=>p.y),backgroundColor:mo.map(p=>p.y>=0?"rgba(0,184,148,.28)":"rgba(214,48,49,.28)"),borderColor:mo.map(p=>p.y>=0?"#00b894":"#d63031"),borderWidth:1,borderRadius:3}}]);
-}}
-function renderSigCards(el){{
-  el.innerHTML+=`<div class="sgt">Performance by Signal Type</div><div class="sg">`+
-  Object.entries(D.signals).map(([name,d])=>{{
-    const m=d.metrics,col=SC[name]||"#c9a84c";
-    const pf=(m.profitFactor===0&&m.wins===0)?"—":m.profitFactor;
-    return `<div class="sc">
-      <div class="sn"><span class="sd" style="background:${{col}}"></span>${{name}}</div>
-      <div class="sr"><span>Cumul. % Fixed</span><span style="color:${{m.cumPctFixed>=0?"#00b894":"#d63031"}}">${{pct(m.cumPctFixed)}}</span></div>
-      <div class="sr"><span>Cumul. % TV</span><span style="color:${{m.cumPctTV>=0?"#00b894":"#d63031"}}">${{pct(m.cumPctTV)}}</span></div>
-      <div class="sr"><span>Win Rate</span><span style="color:${{col}}">${{m.winrate}}%</span></div>
-      <div class="sr"><span>Profit Factor</span><span>${{pf}}</span></div>
-      <div class="sr"><span>Trades</span><span>${{m.total}}</span></div>
-      <div class="sr"><span>Since</span><span style="font-size:.62rem">${{m.firstDate}}</span></div>
+}});
+
+// ── Weekly P&L ─────────────────────────────────────────────────────────────
+const wEl = document.getElementById("weekly-content");
+const activeWeeks = D.weekly ? D.weekly.filter(w => w.trades > 0) : [];
+if (activeWeeks.length === 0) {{
+  wEl.innerHTML = `<div class="pnl-empty">No trades this month yet</div>`;
+}} else {{
+  D.weekly.forEach(w => {{
+    if (w.trades === 0) return;
+    const col = w.pnl >= 0 ? "var(--grn)" : "var(--red)";
+    wEl.innerHTML += `
+    <div class="pnl-row">
+      <span class="pnl-label">${{w.label}}</span>
+      <span>
+        <span class="pnl-val" style="color:${{col}}">${{pct(w.pnl)}}</span>
+        <span class="pnl-meta">${{w.trades}} trades · ${{w.wins}}W</span>
+      </span>
     </div>`;
-  }}).join("")+"</div>";
+  }});
 }}
-function buildPanel(id,title,sub,m,eF,eT,mo,col,cards){{
-  const p=document.getElementById(id);
-  renderKPIs(m,p,title,sub);
-  p.innerHTML+=`<div id="${{id}}_c"></div>`;
-  renderCharts(id,eF,eT,mo,col);
-  if(cards)renderSigCards(p);
+
+// ── Monthly P&L History ────────────────────────────────────────────────────
+const mEl = document.getElementById("monthly-content");
+if (!D.monthly || D.monthly.length === 0) {{
+  mEl.innerHTML = `<div class="pnl-empty">No history yet</div>`;
+}} else {{
+  [...D.monthly].reverse().forEach(m => {{
+    const col = m.pnl >= 0 ? "var(--grn)" : "var(--red)";
+    mEl.innerHTML += `
+    <div class="pnl-row">
+      <span class="pnl-label">${{m.label}}</span>
+      <span>
+        <span class="pnl-val" style="color:${{col}}">${{pct(m.pnl)}}</span>
+        <span class="pnl-meta">${{m.trades}} trades</span>
+      </span>
+    </div>`;
+  }});
 }}
-const gm=D.global.metrics;
-buildPanel("global","Global Backtest",
-  `Tracking since <span>${{gm.firstDate}}</span> · All 3 signal types active simultaneously`,
-  gm,D.global.equityFixed,D.global.equityTV,D.global.monthly,"#c9a84c",true);
-["Trend","Momentum","Reversal"].forEach(n=>{{
-  const d=D.signals[n],m=d.metrics;
-  buildPanel(n,n+" Backtest",`Tracking since <span>${{m.firstDate}}</span>`,
-    m,d.equityFixed,d.equityTV,d.monthly,SC[n],false);
+
+// ── Annual Equity Curve ────────────────────────────────────────────────────
+const eq  = D.equity || [];
+const ctx = document.getElementById("eqChart").getContext("2d");
+const g   = ctx.createLinearGradient(0, 0, 0, 240);
+g.addColorStop(0, "#c9a84c38");
+g.addColorStop(1, "#c9a84c00");
+new Chart(ctx, {{
+  type: "line",
+  data: {{
+    labels: eq.map(p => p.x),
+    datasets: [{{
+      data: eq.map(p => p.y),
+      borderColor: "#c9a84c",
+      borderWidth: 2,
+      backgroundColor: g,
+      fill: true,
+      pointRadius: eq.length < 15 ? 5 : 3,
+      pointBackgroundColor: "#c9a84c",
+      tension: .35
+    }}]
+  }},
+  options: {{
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {{
+      legend: {{ display: false }},
+      tooltip: {{
+        callbacks: {{
+          label: c => " " + (c.parsed.y >= 0 ? "+" : "") + c.parsed.y.toFixed(2) + "%"
+        }}
+      }}
+    }},
+    scales: {{
+      x: {{
+        ticks: {{ color:"#55557a", font:{{ family:"JetBrains Mono", size:10 }} }},
+        grid:  {{ color:"rgba(255,255,255,.04)" }}
+      }},
+      y: {{
+        ticks: {{
+          color:"#55557a",
+          font:{{ family:"JetBrains Mono", size:10 }},
+          callback: v => v + "%"
+        }},
+        grid: {{ color:"rgba(255,255,255,.04)" }}
+      }}
+    }}
+  }}
 }});
 </script>
 </body>
 </html>"""
 
-with open("index.html","w",encoding="utf-8") as f:
+with open("index.html", "w", encoding="utf-8") as f:
     f.write(html)
 
-print("Oracle Algo Dashboard generated.")
-print(f"  Trades : {data['global']['metrics']['total']}")
-print(f"  WinRate: {data['global']['metrics']['winrate']}%")
-print(f"  Cumul. Fixed: {data['global']['metrics']['cumPctFixed']}%")
-print(f"  Since  : {data['global']['metrics']['firstDate']}")
+print("Dashboard generated — Gold Oracle Scalper V1")
+print(f"  Signals tracked : Trend, Momentum, Reversal, Cont.3M, Cont.5M")
+print(f"  Win Rate        : {gm['winrate']}%")
+print(f"  Profit Factor   : {gm['profitFactor']}")
+print(f"  Total Trades    : {gm['total']}")
+print(f"  Since           : {gm['firstDate']}")
