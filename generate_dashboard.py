@@ -205,11 +205,8 @@ header.scrolled{{background:rgba(2,4,9,0.7);border-color:var(--border);}}
 .live-text span{{color:var(--text);}}
  
 /* HERO */
-.hero{{padding:80px 24px 56px;text-align:center;}}
-.hero-eyebrow{{display:inline-flex;align-items:center;gap:8px;
-  background:rgba(99,179,237,0.08);border:1px solid rgba(99,179,237,0.2);
-  border-radius:20px;padding:5px 14px;margin-bottom:24px;
-  font-family:var(--font-m);font-size:11px;color:var(--blue-light);letter-spacing:0.08em;text-transform:uppercase;}}
+.hero{{padding:40px 24px 48px;text-align:center;}}
+.hero-eyebrow{{display:none;}}
 .hero h1{{font-family:var(--font-d);font-size:clamp(36px,6vw,72px);font-weight:700;
   line-height:1.08;letter-spacing:-2px;color:#fff;margin-bottom:16px;}}
 .hero h1 .g{{background:linear-gradient(120deg,var(--blue-light) 0%,var(--cyan) 50%,#a78bfa 100%);
@@ -227,10 +224,10 @@ header.scrolled{{background:rgba(2,4,9,0.7);border-color:var(--border);}}
 /* SECTION */
 .section{{padding:56px 0;}}
 .section-label{{font-family:var(--font-d);font-size:11px;font-weight:600;
-  color:var(--blue-light);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px;}}
+  color:var(--blue-light);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px;text-align:center;}}
 .section-title{{font-family:var(--font-d);font-size:clamp(22px,3vw,30px);font-weight:700;
-  color:var(--text);margin-bottom:4px;}}
-.section-sub{{font-size:14px;color:var(--text-muted);font-weight:300;}}
+  color:var(--text);margin-bottom:4px;text-align:center;}}
+.section-sub{{font-size:14px;color:var(--text-muted);font-weight:300;text-align:center;}}
  
 /* KPI GRID */
 .kpi-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-top:32px;}}
@@ -368,9 +365,6 @@ footer{{border-top:1px solid var(--border);padding:40px 24px;text-align:center;m
  
   <!-- KPIs -->
   <section class="section">
-    <div class="section-label">Performance Overview</div>
-    <div class="section-title">Global Metrics</div>
-    <div class="section-sub">All signals combined · All time</div>
     <div class="kpi-grid" id="kpis"></div>
   </section>
  
@@ -398,21 +392,11 @@ footer{{border-top:1px solid var(--border);padding:40px 24px;text-align:center;m
   <!-- EQUITY CURVE -->
   <section class="section">
     <div class="section-label">Equity Curve</div>
-    <div class="section-title">Cumulative Performance</div>
-    <div class="section-sub">Month-by-month cumulative TV%</div>
+    <div class="section-title">Annual Equity Curve</div>
+    <div class="section-sub">Cumulative performance month by month</div>
     <div class="chart-wrap" style="margin-top:32px;">
       <div class="chart-canvas"><canvas id="eqChart"></canvas></div>
     </div>
-  </section>
- 
-  <div class="sdivider"></div>
- 
-  <!-- SIGNAL BREAKDOWN -->
-  <section class="section">
-    <div class="section-label">Signal Breakdown</div>
-    <div class="section-title">Performance by Strategy</div>
-    <div class="section-sub">Individual metrics for each signal type</div>
-    <div class="sig-grid" id="sig-grid"></div>
   </section>
  
 </main>
@@ -552,38 +536,6 @@ new Chart(ctx, {{
   }}
 }});
  
-// ── Signal Breakdown ──────────────────────────────────────────────────────────
-const sigGrid = document.getElementById("sig-grid");
-(D.signals || []).forEach(s => {{
-  const wr = s.winrate || 0;
-  sigGrid.innerHTML += `
-  <div class="sig-card">
-    <div class="sig-name"><span class="sig-dot"></span>${{s.name}}</div>
-    <div class="sig-stats">
-      <div>
-        <div class="sig-stat-label">Win Rate</div>
-        <div class="sig-stat-val b">${{wr}}%</div>
-      </div>
-      <div>
-        <div class="sig-stat-label">Trades</div>
-        <div class="sig-stat-val">${{s.total}}</div>
-      </div>
-      <div>
-        <div class="sig-stat-label">Wins</div>
-        <div class="sig-stat-val g">${{s.wins}}</div>
-      </div>
-      <div>
-        <div class="sig-stat-label">TV%</div>
-        <div class="sig-stat-val" style="color:${{clr(s.cumTV)}}">${{pct(s.cumTV)}}</div>
-      </div>
-    </div>
-    <div class="wr-bar-wrap">
-      <div class="wr-bar-track"><div class="wr-bar-fill" style="width:${{wr}}%"></div></div>
-      <div class="wr-bar-label"><span>0%</span><span>${{wr}}% win rate</span><span>100%</span></div>
-    </div>
-  </div>`;
-}});
- 
 // ── Scroll header ──────────────────────────────────────────────────────────────
 window.addEventListener("scroll", () =>
   document.getElementById("mainHeader").classList.toggle("scrolled", window.scrollY > 50)
@@ -601,3 +553,4 @@ print(f"  Win Rate        : {gm['winrate']}%")
 print(f"  Profit Factor   : {gm['profitFactor']}")
 print(f"  Total Trades    : {gm['total']}")
 print(f"  Since           : {gm['firstDate']}")
+ 
