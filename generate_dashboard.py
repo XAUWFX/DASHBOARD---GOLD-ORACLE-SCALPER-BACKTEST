@@ -166,7 +166,7 @@ header.scrolled{{background:rgba(2,4,9,0.7);border-color:var(--border);}}
 .section-label{{font-family:var(--font-d);font-size:11px;font-weight:600;color:var(--blue-light);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px;text-align:center;}}
 .section-title{{font-family:var(--font-d);font-size:clamp(22px,3vw,30px);font-weight:700;color:var(--text);margin-bottom:4px;text-align:center;}}
 .section-sub{{font-size:14px;color:var(--text-muted);font-weight:300;text-align:center;}}
-.kpi-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:32px;}}
+.kpi-grid{{display:grid;grid-template-columns:repeat(7,1fr);gap:12px;margin-top:32px;}}@media(max-width:900px){{.kpi-grid{{grid-template-columns:repeat(3,1fr);}}}}@media(max-width:560px){{.kpi-grid{{grid-template-columns:repeat(2,1fr);}}}}
 .kpi-card{{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px 18px;position:relative;overflow:hidden;transition:border-color 0.2s,transform 0.15s;}}
 .kpi-card::before{{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(99,179,237,0.25),transparent);}}
 .kpi-card:hover{{border-color:var(--border-bright);transform:translateY(-2px);}}
@@ -286,13 +286,13 @@ function fmtPct(v){{return(v>=0?"+":"")+Number(v).toFixed(2)+"%"}}
 function clr(v){{return v>0?"var(--green)":v<0?"var(--red)":"var(--text-muted)"}}
  
 const kpiData=[
-  {{label:"Win Rate",     val:mm.winrate+"%",       cls:"blue",   note:"Current month · All signals"}},
-  {{label:"Profit Factor",val:mm.profitFactor||"—", cls:"purple", note:"Current month · All signals"}},
-  {{label:"Month Trades", val:mm.total,              cls:"",       note:"Resets each month"}},
-  {{label:"Month Wins",   val:mm.wins,               cls:"green",  note:"Current month"}},
-  {{label:"Month Losses", val:mm.losses,             cls:"red",    note:"Current month"}},
-  {{label:"Month TV %",   val:fmtPct(mm.cumTV||0),   cls:(mm.cumTV||0)>=0?"green":"red", note:"Strategy P&L %"}},
-  {{label:"Month Fixed %",val:fmtPct(mm.cumFixed||0),cls:(mm.cumFixed||0)>=0?"green":"red",note:"TP/SL levels %"}},
+  {{label:"Win Rate",          val:gm.winrate+"%",        cls:"blue",   note:"All time · updates per trade"}},
+  {{label:"Profit Factor",     val:mm.profitFactor||"—",  cls:"purple", note:"Current month · resets monthly"}},
+  {{label:"Month Trades",      val:mm.total,               cls:"",       note:"Resets each month"}},
+  {{label:"Month Wins",        val:mm.wins,                cls:"green",  note:"Resets each month"}},
+  {{label:"Month Losses",      val:mm.losses,              cls:"red",    note:"Resets each month"}},
+  {{label:"Month TV %",        val:fmtPct(mm.cumTV||0),    cls:(mm.cumTV||0)>=0?"green":"red", note:"Monthly cumul. TV%"}},
+  {{label:"Month Fixed %",     val:fmtPct(mm.cumFixed||0), cls:(mm.cumFixed||0)>=0?"green":"red", note:"Monthly cumul. TP/SL%"}},
 ];
 const kRow=document.getElementById("kpis");
 kpiData.forEach(k=>{{kRow.innerHTML+=`<div class="kpi-card"><div class="kpi-label">${{k.label}}</div><div class="kpi-value ${{k.cls}}">${{k.val}}</div><div class="kpi-note">${{k.note}}</div></div>`;}});
