@@ -166,12 +166,12 @@ header.scrolled{{background:rgba(2,4,9,0.7);border-color:var(--border);}}
 .section-label{{font-family:var(--font-d);font-size:11px;font-weight:600;color:var(--blue-light);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px;text-align:center;}}
 .section-title{{font-family:var(--font-d);font-size:clamp(22px,3vw,30px);font-weight:700;color:var(--text);margin-bottom:4px;text-align:center;}}
 .section-sub{{font-size:14px;color:var(--text-muted);font-weight:300;text-align:center;}}
-.kpi-grid{{display:grid;grid-template-columns:repeat(7,1fr);gap:12px;margin-top:32px;}}@media(max-width:900px){{.kpi-grid{{grid-template-columns:repeat(3,1fr);}}}}@media(max-width:560px){{.kpi-grid{{grid-template-columns:repeat(2,1fr);}}}}
-.kpi-card{{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px 18px;position:relative;overflow:hidden;transition:border-color 0.2s,transform 0.15s;}}
+.kpi-grid{{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;margin-top:32px;}}@media(max-width:1000px){{.kpi-grid{{grid-template-columns:repeat(4,1fr);}}}}@media(max-width:560px){{.kpi-grid{{grid-template-columns:repeat(2,1fr);}}}}
+.kpi-card{{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;position:relative;overflow:hidden;transition:border-color 0.2s,transform 0.15s;}}
 .kpi-card::before{{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(99,179,237,0.25),transparent);}}
 .kpi-card:hover{{border-color:var(--border-bright);transform:translateY(-2px);}}
 .kpi-label{{font-family:var(--font-m);font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;}}
-.kpi-value{{font-family:var(--font-d);font-size:2rem;font-weight:700;line-height:1;color:var(--text);}}
+.kpi-value{{font-family:var(--font-d);font-size:1.6rem;font-weight:700;line-height:1;color:var(--text);}}
 .kpi-value.blue{{background:linear-gradient(120deg,var(--blue-light),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}}
 .kpi-value.green{{color:var(--green);}}.kpi-value.red{{color:var(--red);}}.kpi-value.purple{{color:var(--purple);}}
 .kpi-note{{font-family:var(--font-m);font-size:10px;color:var(--text-dim);margin-top:8px;}}
@@ -225,12 +225,7 @@ footer{{border-top:1px solid var(--border);padding:40px 24px;text-align:center;m
   <p class="hero-sub">Real-time signal tracking on XAUUSD. Every trade logged, every result verified. No cherry-picking.</p>
   <div class="hero-meta">
     <span>Tracking since <span id="since">—</span></span>
-    <span class="sep">·</span><span>XAUUSD · All signals combined</span>
     <span class="sep">·</span><span>Starting May 2026</span>
-  </div>
-  <div class="legend">
-    <div class="leg-item"><span class="leg-dot leg-tv"></span>TV % — Strategy P&amp;L</div>
-    <div class="leg-item"><span class="leg-dot leg-fix"></span>Fixed % — TP/SL levels</div>
   </div>
 </section>
  
