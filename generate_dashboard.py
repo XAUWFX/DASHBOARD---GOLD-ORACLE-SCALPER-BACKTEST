@@ -3,339 +3,427 @@ import json
 import calendar
 from datetime import datetime
 from urllib.parse import quote
- 
-# ─── CAMBIA SOLO ESTO ─────────────────────────────────────────────────────
+
+# ─── CONFIGURACIÓN ────────────────────────────────────────────────────────
 SHEET_ID = "1ox6Abqq3I6ElRwYc9a3lxes5n3AtspQLRskzBY90pxI"
-SIGNALS  = ["Trend", "Momentum", "Reversal", "Cont.3M", "Cont.5M"]
+SIGNALS  = ["Trend", "Momentum", "Reversal", "Cont.5M"]
 # ──────────────────────────────────────────────────────────────────────────
- 
+
 def csv_url(name):
     return (f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
             f"/gviz/tq?tqx=out:csv&sheet={quote(name)}")
- 
-COLS  = ["fecha","hora","tipoSenal","direccion","razon","pctTV","tpPct","slPct","pctFixed","tradeId"]
-EMPTY = pd.DataFrame(columns=COLS + ["win"])
- 
+
+EMPTY = pd.DataFrame(columns=["fecha","hora","tipoSenal","direccion","razon","pctTV","tradeId","win"])
+
 def load_sheet(name):
     try:
         raw = pd.read_csv(csv_url(name), header=0)
         if raw.empty or len(raw.columns) == 0:
             return EMPTY.copy()
-        raw = raw.iloc[:, :len(COLS)]
-        raw.columns = COLS[:len(raw.columns)]
-        for c in COLS:
+        cols = ["fecha","hora","tipoSenal","direccion","razon","pctTV","tradeId"]
+        raw  = raw.iloc[:, :len(cols)]
+        raw.columns = cols[:len(raw.columns)]
+        for c in cols:
             if c not in raw.columns:
                 raw[c] = None
-        raw["fecha"]    = pd.to_datetime(raw["fecha"], dayfirst=True, errors="coerce")
-        raw["pctTV"]    = pd.to_numeric(raw["pctTV"],    errors="coerce").fillna(0)
-        raw["pctFixed"] = pd.to_numeric(raw["pctFixed"], errors="coerce").fillna(0)
-        raw["win"]      = raw["razon"].astype(str).str.contains("Take Profit", na=False)
+        raw["fecha"] = pd.to_datetime(raw["fecha"], dayfirst=True, errors="coerce")
+        raw["pctTV"] = pd.to_numeric(raw["pctTV"], errors="coerce").fillna(0)
+        raw["win"]   = raw["razon"].astype(str).str.contains("Take Profit", na=False)
         return raw.dropna(subset=["fecha"])
     except Exception as ex:
         print(f"Cannot load '{name}': {ex}")
         return EMPTY.copy()
- 
+
+def load_manual_pnl():
+    try:
+        raw = pd.read_csv(csv_url("TV DAILY P&L"), header=0)
+        if raw.empty or len(raw.columns) == 0:
+            return pd.DataFrame(columns=["fecha","pnlPct","notas"])
+        raw = raw.iloc[:, :3]
+        raw.columns = ["fecha","pnlPct","notas"][:len(raw.columns)]
+        if "fecha"  not in raw.columns: raw["fecha"]  = None
+        if "pnlPct" not in raw.columns: raw["pnlPct"] = 0
+        raw["fecha"]  = pd.to_datetime(raw["fecha"], dayfirst=True, errors="coerce")
+        raw["pnlPct"] = pd.to_numeric(raw["pnlPct"], errors="coerce").fillna(0)
+        return raw.dropna(subset=["fecha"])
+    except Exception as ex:
+        print(f"Cannot load manual P&L: {ex}")
+        return pd.DataFrame(columns=["fecha","pnlPct","notas"])
+
 now    = datetime.utcnow()
 dfs    = {n: load_sheet(n) for n in SIGNALS}
 all_df = pd.concat(list(dfs.values()), ignore_index=True) \
          if any(not d.empty for d in dfs.values()) else EMPTY.copy()
- 
+manual_df = load_manual_pnl()
+
 def global_metrics(df):
     if df.empty or "win" not in df.columns:
-        return dict(total=0,wins=0,losses=0,winrate=0,profitFactor=0,
-                    firstDate="No data yet",cumTV=0,cumFixed=0)
+        return dict(total=0, wins=0, losses=0, winrate=0, profitFactor=0, firstDate="No data yet")
     total  = len(df)
-    wins   = df[df["win"]==True]; losses = df[df["win"]==False]
-    grossP = wins["pctTV"].sum() if len(wins)>0 else 0
-    grossL = abs(losses["pctTV"].sum()) if len(losses)>0 else 0
-    first  = df.sort_values("fecha")["fecha"].iloc[0].strftime("%d/%m/%Y") if total>0 else "No data yet"
-    return dict(total=total,wins=len(wins),losses=len(losses),
-                winrate=round(len(wins)/total*100,1) if total>0 else 0,
-                profitFactor=round(grossP/grossL,2) if grossL>0 else 0,
-                firstDate=first,
-                cumTV=round(float(df["pctTV"].sum()),2),
-                cumFixed=round(float(df["pctFixed"].sum()),2))
- 
+    wins   = df[df["win"] == True]
+    losses = df[df["win"] == False]
+    grossP = wins["pctTV"].sum()        if len(wins)   > 0 else 0
+    grossL = abs(losses["pctTV"].sum()) if len(losses) > 0 else 0
+    first  = df.sort_values("fecha")["fecha"].iloc[0].strftime("%d/%m/%Y") if total > 0 else "No data yet"
+    pf     = "∞" if grossL == 0 and total > 0 else (round(grossP/grossL, 2) if grossL > 0 else 0)
+    return dict(
+        total=total, wins=len(wins), losses=len(losses),
+        winrate=round(len(wins)/total*100, 1) if total > 0 else 0,
+        profitFactor=pf, firstDate=first
+    )
+
 def month_metrics(df):
     if df.empty:
-        return dict(total=0,wins=0,losses=0,cumTV=0,cumFixed=0,profitFactor=0,winrate=0)
-    cur = df[(df["fecha"].dt.month==now.month)&(df["fecha"].dt.year==now.year)]
+        return dict(total=0, wins=0, losses=0, monthPct=0)
+    cur = df[(df["fecha"].dt.month == now.month) & (df["fecha"].dt.year == now.year)]
     if cur.empty:
-        return dict(total=0,wins=0,losses=0,cumTV=0,cumFixed=0,profitFactor=0,winrate=0)
-    wins=cur[cur["win"]==True]; losses=cur[cur["win"]==False]
-    grossP=wins["pctTV"].sum() if len(wins)>0 else 0
-    grossL=abs(losses["pctTV"].sum()) if len(losses)>0 else 0
-    return dict(total=len(cur),wins=len(wins),losses=len(losses),
-                cumTV=round(float(cur["pctTV"].sum()),2),
-                cumFixed=round(float(cur["pctFixed"].sum()),2),
-                profitFactor=round(grossP/grossL,2) if grossL>0 else 0,
-                winrate=round(len(wins)/len(cur)*100,1) if len(cur)>0 else 0)
- 
+        return dict(total=0, wins=0, losses=0, monthPct=0)
+    return dict(
+        total=len(cur),
+        wins=len(cur[cur["win"] == True]),
+        losses=len(cur[cur["win"] == False]),
+        monthPct=round(float(cur["pctTV"].sum()), 2)
+    )
+
+def today_manual_pnl(df):
+    if df.empty:
+        return None
+    today_data = df[df["fecha"].dt.date == now.date()]
+    if not today_data.empty:
+        return round(float(today_data["pnlPct"].sum()), 2)
+    # Si no hay dato de hoy, mostrar el más reciente
+    if not df.empty:
+        last = df.sort_values("fecha").iloc[-1]
+        return round(float(last["pnlPct"]), 2)
+    return None
+
 def weekly_pnl(df):
-    if df.empty: return []
-    cur=df[(df["fecha"].dt.month==now.month)&(df["fecha"].dt.year==now.year)]
-    dim=calendar.monthrange(now.year,now.month)[1]; mn=now.strftime("%b")
-    result=[]
-    for i,(ws,we) in enumerate([(1,7),(8,14),(15,21),(22,28),(29,dim)]):
-        if ws>dim: break
-        we=min(we,dim); wt=cur[(cur["fecha"].dt.day>=ws)&(cur["fecha"].dt.day<=we)]
-        wins=wt[wt["win"]==True] if len(wt)>0 else wt
-        result.append({"label":f"Week {i+1}  ·  {mn} {ws}–{we}",
-                       "pnlTV":round(float(wt["pctTV"].sum()),2) if len(wt)>0 else 0,
-                       "pnlFixed":round(float(wt["pctFixed"].sum()),2) if len(wt)>0 else 0,
-                       "trades":len(wt),"wins":len(wins)})
+    if df.empty:
+        return []
+    cur = df[(df["fecha"].dt.month == now.month) & (df["fecha"].dt.year == now.year)]
+    dim = calendar.monthrange(now.year, now.month)[1]
+    mn  = now.strftime("%b")
+    result = []
+    for i, (ws, we) in enumerate([(1,7),(8,14),(15,21),(22,28),(29,dim)]):
+        if ws > dim:
+            break
+        we = min(we, dim)
+        wt = cur[(cur["fecha"].dt.day >= ws) & (cur["fecha"].dt.day <= we)]
+        result.append({
+            "label":  f"Week {i+1}  ·  {mn} {ws}–{we}",
+            "pnl":    round(float(wt["pctTV"].sum()), 2) if len(wt) > 0 else 0,
+            "trades": len(wt),
+            "wins":   len(wt[wt["win"] == True]) if len(wt) > 0 else 0
+        })
     return result
- 
+
 def monthly_pnl(df):
-    if df.empty: return []
-    cur=df[df["fecha"].dt.year==now.year].copy().dropna(subset=["fecha"])
-    if cur.empty: return []
-    cur["month"]=cur["fecha"].dt.to_period("M")
-    result=[]
-    for period,g in cur.groupby("month"):
-        wins=g[g["win"]==True]
-        result.append({"label":period.strftime("%b %Y"),
-                       "pnlTV":round(float(g["pctTV"].sum()),2),
-                       "pnlFixed":round(float(g["pctFixed"].sum()),2),
-                       "trades":len(g),"wins":len(wins)})
+    if df.empty:
+        return []
+    s = df.copy().dropna(subset=["fecha"])
+    if s.empty:
+        return []
+    s["month"] = s["fecha"].dt.to_period("M")
+    result = []
+    for period, g in s.groupby("month"):
+        result.append({
+            "label":  period.strftime("%b %Y"),
+            "pnl":    round(float(g["pctTV"].sum()), 2),
+            "trades": len(g),
+            "wins":   len(g[g["win"] == True])
+        })
     return result
- 
+
 def annual_equity(df):
-    mp=monthly_pnl(df); cumTV=0; cumFix=0; pts=[]
+    mp  = monthly_pnl(df)
+    cum = 0
+    pts = []
     for m in mp:
-        cumTV=round(cumTV+m["pnlTV"],2); cumFix=round(cumFix+m["pnlFixed"],2)
-        pts.append({"x":m["label"],"tv":cumTV,"fixed":cumFix})
+        cum = round(cum + m["pnl"], 2)
+        pts.append({"x": m["label"], "y": cum})
     return pts
- 
-gm=global_metrics(all_df); mm=month_metrics(all_df)
-wk=weekly_pnl(all_df); mp=monthly_pnl(all_df); eq=annual_equity(all_df)
- 
-data={"updated":now.strftime("%d/%m/%Y %H:%M UTC"),
-      "globalMetrics":gm,"monthMetrics":mm,
-      "weekly":wk,"monthly":mp,"equity":eq}
-J=json.dumps(data,ensure_ascii=False)
- 
-html=f"""<!DOCTYPE html>
+
+gm      = global_metrics(all_df)
+mm      = month_metrics(all_df)
+wk      = weekly_pnl(all_df)
+mp      = monthly_pnl(all_df)
+eq      = annual_equity(all_df)
+dailyPL = today_manual_pnl(manual_df)
+
+data = {
+    "updated":       now.strftime("%d/%m/%Y %H:%M UTC"),
+    "globalMetrics": gm,
+    "monthMetrics":  mm,
+    "weekly":        wk,
+    "monthly":       mp,
+    "equity":        eq,
+    "dailyPL":       dailyPL
+}
+J = json.dumps(data, ensure_ascii=False)
+
+html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Oracle Algo — Gold Oracle Scalper V1 · Live Backtest</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<title>Oracle Algo — Gold Oracle Scalper V1</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Raleway:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0;}}
-:root{{
-  --bg:#020409;--surface:#080c17;--border:rgba(255,255,255,0.07);--border-bright:rgba(99,179,237,0.18);
-  --blue:#2d7dd2;--blue-light:#63b3ed;--cyan:#22d3ee;--purple:#818cf8;
-  --green:#34d399;--red:#f87171;
-  --text:#eef4ff;--text-muted:#7a90b5;--text-dim:#3d4e6a;
-  --font-d:'Outfit',sans-serif;--font-b:'DM Sans',sans-serif;--font-m:'JetBrains Mono',monospace;--r:12px;
-}}
-html{{scroll-behavior:smooth;}}
-body{{background:var(--bg);color:var(--text);font-family:var(--font-b);overflow-x:hidden;min-height:100vh;}}
-.aurora{{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;}}
-.aurora::before{{content:'';position:absolute;border-radius:50%;filter:blur(120px);opacity:0.35;width:900px;height:650px;background:radial-gradient(ellipse,rgba(18,72,196,0.9) 0%,transparent 70%);top:-220px;left:-80px;animation:adrift 26s ease-in-out infinite;}}
-.aurora::after{{content:'';position:absolute;border-radius:50%;filter:blur(120px);opacity:0.3;width:750px;height:520px;background:radial-gradient(ellipse,rgba(90,30,190,0.65) 0%,transparent 70%);top:-80px;right:-160px;animation:adrift 20s ease-in-out infinite;animation-delay:-7s;}}
-.ac{{position:absolute;border-radius:50%;filter:blur(100px);opacity:0.25;width:600px;height:400px;background:radial-gradient(ellipse,rgba(4,148,188,0.5) 0%,transparent 70%);top:40vh;left:15%;animation:adrift 30s ease-in-out infinite;animation-delay:-14s;}}
-@keyframes adrift{{0%,100%{{transform:translate(0,0) scale(1)}}25%{{transform:translate(60px,-50px) scale(1.06)}}50%{{transform:translate(-50px,70px) scale(0.95)}}75%{{transform:translate(30px,30px) scale(1.03)}}}}
-.aurora-veil{{position:fixed;inset:0;z-index:1;background:linear-gradient(to bottom,rgba(2,4,9,0.25) 0%,rgba(2,4,9,0.6) 55%,rgba(2,4,9,0.97) 100%);pointer-events:none;}}
-.wrap{{position:relative;z-index:2;}}
-.container{{max-width:1160px;margin:0 auto;padding:0 24px;}}
-header{{position:sticky;top:0;z-index:150;height:64px;padding:0 32px;background:rgba(2,4,9,0.0);backdrop-filter:blur(26px) saturate(1.5);display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid transparent;transition:background 0.3s,border-color 0.3s;}}
-header.scrolled{{background:rgba(2,4,9,0.7);border-color:var(--border);}}
-.brand{{display:flex;align-items:center;gap:10px;text-decoration:none;}}
-.brand-text{{font-family:var(--font-d);font-weight:800;font-size:18px;letter-spacing:2px;background:linear-gradient(90deg,#fff,var(--blue-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}}
-.live-pill{{display:flex;align-items:center;gap:7px;background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);border-radius:20px;padding:5px 14px;}}
-.live-dot{{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;flex-shrink:0;}}
-@keyframes pulse{{0%,100%{{box-shadow:0 0 0 0 rgba(52,211,153,0.5)}}50%{{box-shadow:0 0 0 5px rgba(52,211,153,0)}}}}
-.live-text{{font-family:var(--font-m);font-size:11px;color:var(--text-muted);}}
-.live-text span{{color:var(--text);}}
-.hero{{padding:40px 24px 48px;text-align:center;}}
-.hero h1{{font-family:var(--font-d);font-size:clamp(36px,6vw,72px);font-weight:700;line-height:1.08;letter-spacing:-2px;color:#fff;margin-bottom:16px;}}
-.hero h1 .g{{background:linear-gradient(120deg,var(--blue-light) 0%,var(--cyan) 50%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}}
-.hero-sub{{font-size:clamp(14px,1.6vw,16px);color:var(--text-muted);max-width:500px;margin:0 auto 28px;font-weight:300;line-height:1.75;}}
-.hero-meta{{display:flex;align-items:center;justify-content:center;gap:24px;flex-wrap:wrap;font-family:var(--font-m);font-size:11px;color:var(--text-dim);}}
-.hero-meta span{{color:var(--text-muted);}}.hero-meta .sep{{color:var(--text-dim);}}
-.legend{{display:flex;align-items:center;justify-content:center;gap:20px;margin-top:20px;flex-wrap:wrap;}}
-.leg-item{{display:flex;align-items:center;gap:6px;font-family:var(--font-m);font-size:11px;color:var(--text-muted);}}
-.leg-dot{{width:8px;height:8px;border-radius:50%;}}.leg-tv{{background:var(--blue-light);}}.leg-fix{{background:var(--cyan);}}
-.sdivider{{height:1px;background:linear-gradient(90deg,transparent,var(--border-bright),transparent);margin:0 auto;max-width:860px;}}
-.section{{padding:56px 0;}}
-.section-label{{font-family:var(--font-d);font-size:11px;font-weight:600;color:var(--blue-light);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px;text-align:center;}}
-.section-title{{font-family:var(--font-d);font-size:clamp(22px,3vw,30px);font-weight:700;color:var(--text);margin-bottom:4px;text-align:center;}}
-.section-sub{{font-size:14px;color:var(--text-muted);font-weight:300;text-align:center;}}
-.kpi-grid{{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;margin-top:32px;}}@media(max-width:1000px){{.kpi-grid{{grid-template-columns:repeat(4,1fr);}}}}@media(max-width:560px){{.kpi-grid{{grid-template-columns:repeat(2,1fr);}}}}
-.kpi-card{{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 12px;position:relative;overflow:hidden;transition:border-color 0.2s,transform 0.15s;}}
-.kpi-card::before{{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(99,179,237,0.25),transparent);}}
-.kpi-card:hover{{border-color:var(--border-bright);transform:translateY(-2px);}}
-.kpi-label{{font-family:var(--font-m);font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;}}
-.kpi-value{{font-family:var(--font-d);font-size:1.6rem;font-weight:700;line-height:1;color:var(--text);}}
-.kpi-value.blue{{background:linear-gradient(120deg,var(--blue-light),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}}
-.kpi-value.green{{color:var(--green);}}.kpi-value.red{{color:var(--red);}}.kpi-value.purple{{color:var(--purple);}}
-.kpi-note{{font-family:var(--font-m);font-size:10px;color:var(--text-dim);margin-top:8px;}}
-.two-col{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:32px;}}
-@media(max-width:680px){{.two-col{{grid-template-columns:1fr;}}}}
-.card{{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:24px;}}
-.card-title{{font-family:var(--font-d);font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;}}
-.pnl-row{{display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);gap:8px;}}
-.pnl-row:last-child{{border-bottom:none;padding-bottom:0;}}
-.pnl-label{{font-family:var(--font-m);font-size:11px;color:var(--text-muted);padding-top:2px;flex-shrink:0;}}
-.pnl-vals{{display:flex;flex-direction:column;align-items:flex-end;gap:3px;}}
-.pnl-val{{font-family:var(--font-m);font-size:13px;font-weight:600;}}
-.pnl-val-fix{{font-family:var(--font-m);font-size:11px;font-weight:500;}}
-.pnl-meta{{font-family:var(--font-m);font-size:10px;color:var(--text-dim);margin-top:2px;display:block;}}
-.pnl-empty{{font-family:var(--font-m);font-size:12px;color:var(--text-dim);text-align:center;padding:24px 0;}}
-.chart-wrap{{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:24px;margin-top:32px;}}
-.chart-canvas{{position:relative;height:260px;}}
-footer{{border-top:1px solid var(--border);padding:40px 24px;text-align:center;margin-top:80px;}}
-.footer-brand{{font-family:var(--font-d);font-weight:800;font-size:20px;letter-spacing:2px;background:linear-gradient(90deg,#fff,var(--blue-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:12px;}}
-.footer-text{{font-family:var(--font-m);font-size:11px;color:var(--text-dim);line-height:2;max-width:600px;margin:0 auto;}}
-.footer-text a{{color:var(--text-muted);text-decoration:none;}}.footer-text a:hover{{color:var(--blue-light);}}
-@media(max-width:560px){{.kpi-grid{{grid-template-columns:1fr 1fr;}}header{{padding:0 16px;}}}}
+:root{{--bg:#07070f;--sur:#0d0d1a;--brd:#1c1c35;--gld:#c9a84c;--gld2:#e8c97a;--gdim:#7a5e25;--grn:#00b894;--red:#d63031;--mut:#55557a;--sub:#8888aa;--txt:#e0e0f0}}
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:var(--bg);color:var(--txt);font-family:'Raleway',sans-serif;min-height:100vh;
+  background-image:radial-gradient(ellipse 70% 40% at 50% 0%,rgba(108,92,231,.06) 0%,transparent 60%)}}
+header{{padding:1.1rem 2.5rem;display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:.8rem;border-bottom:1px solid var(--brd);
+  background:rgba(7,7,15,.97);backdrop-filter:blur(12px);position:sticky;top:0;z-index:100}}
+.logo{{display:flex;align-items:center;gap:.9rem}}
+.lsvg{{width:38px;height:38px;flex-shrink:0}}
+.ltxt h1{{font-family:'Cinzel',serif;font-size:1rem;font-weight:700;letter-spacing:.18em;color:var(--gld2);text-transform:uppercase}}
+.ltxt p{{font-family:'JetBrains Mono',monospace;font-size:.58rem;color:var(--mut);letter-spacing:.07em;margin-top:.1rem}}
+.badge{{font-family:'JetBrains Mono',monospace;font-size:.6rem;color:var(--sub);display:flex;align-items:center;gap:.4rem}}
+.dot{{width:6px;height:6px;border-radius:50%;background:var(--grn);animation:pulse 2s infinite}}
+@keyframes pulse{{0%,100%{{box-shadow:0 0 0 0 rgba(0,184,148,.5)}}50%{{box-shadow:0 0 0 5px rgba(0,184,148,0)}}}}
+main{{max-width:1260px;margin:0 auto;padding:2.5rem 1.5rem}}
+.hero{{text-align:center;margin-bottom:2.5rem;padding-bottom:1.8rem;border-bottom:1px solid var(--brd);position:relative}}
+.hero::after{{content:'';position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);width:80px;height:1px;background:var(--gld)}}
+.hero-title{{font-family:'Cinzel',serif;font-size:1.4rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:var(--gld2);margin-bottom:.5rem}}
+.hero-sub{{font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--mut)}}
+.hero-sub span{{color:var(--sub)}}
+.kpi-row{{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:1rem;margin-bottom:2rem}}
+.kpi{{background:var(--sur);border:1px solid var(--brd);border-radius:10px;padding:1.2rem 1rem;
+  position:relative;overflow:hidden;transition:border-color .2s,transform .15s}}
+.kpi::before{{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(201,168,76,.3),transparent)}}
+.kpi:hover{{border-color:var(--gdim);transform:translateY(-1px)}}
+.kl{{font-family:'JetBrains Mono',monospace;font-size:.55rem;color:var(--mut);
+  text-transform:uppercase;letter-spacing:.1em;margin-bottom:.5rem}}
+.kv{{font-family:'JetBrains Mono',monospace;font-size:1.45rem;font-weight:600;color:var(--txt)}}
+.kv.gold{{color:var(--gld2)}}.kv.green{{color:var(--grn)}}.kv.red{{color:var(--red)}}
+.kn{{font-family:'JetBrains Mono',monospace;font-size:.52rem;color:var(--mut);margin-top:.25rem}}
+.kpi.highlight{{border-color:var(--gold-dim);background:linear-gradient(135deg,#0d0d1a 0%,#111120 100%)}}
+.two-col{{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:2rem}}
+@media(max-width:700px){{.two-col{{grid-template-columns:1fr}}}}
+.card{{background:var(--sur);border:1px solid var(--brd);border-radius:10px;padding:1.5rem}}
+.card-title{{font-family:'Cinzel',serif;font-size:.65rem;font-weight:600;color:var(--mut);
+  text-transform:uppercase;letter-spacing:.12em;margin-bottom:1.2rem;
+  border-bottom:1px solid var(--brd);padding-bottom:.7rem}}
+.pnl-row{{display:flex;justify-content:space-between;align-items:center;
+  padding:.45rem 0;border-bottom:1px solid rgba(255,255,255,.04);
+  font-family:'JetBrains Mono',monospace;font-size:.75rem}}
+.pnl-row:last-child{{border-bottom:none}}
+.pnl-label{{color:var(--sub)}}
+.pnl-val{{font-weight:600}}
+.pnl-meta{{font-size:.6rem;color:var(--mut);margin-left:.5rem}}
+.pnl-empty{{font-family:'JetBrains Mono',monospace;font-size:.7rem;color:var(--mut);
+  text-align:center;padding:1.5rem 0}}
+.eq-wrap{{background:var(--sur);border:1px solid var(--brd);border-radius:10px;
+  padding:1.5rem;margin-bottom:2rem}}
+.eq-title{{font-family:'Cinzel',serif;font-size:.65rem;font-weight:600;color:var(--mut);
+  text-transform:uppercase;letter-spacing:.12em;margin-bottom:1.2rem}}
+.eq-chart{{position:relative;height:240px}}
+footer{{text-align:center;padding:2rem 1rem;border-top:1px solid var(--brd)}}
+.fl{{font-family:'Cinzel',serif;font-size:.7rem;letter-spacing:.2em;color:var(--gdim);
+  text-transform:uppercase;margin-bottom:.5rem}}
+.fc{{font-family:'JetBrains Mono',monospace;font-size:.58rem;color:var(--mut);line-height:1.8}}
+@media(max-width:560px){{.kpi-row{{grid-template-columns:1fr 1fr}}header{{padding:.9rem 1rem}}}}
 </style>
 </head>
 <body>
-<div class="aurora"><div class="ac"></div></div>
-<div class="aurora-veil"></div>
-<div class="wrap">
- 
-<header id="mainHeader">
-  <a class="brand" href="#">
-    <svg width="32" height="32" viewBox="0 0 34 34" fill="none">
-      <defs><linearGradient id="lg1" x1="0" y1="0" x2="34" y2="34" gradientUnits="userSpaceOnUse">
-        <stop offset="0%" stop-color="#ffffff"/><stop offset="35%" stop-color="#63b3ed"/>
-        <stop offset="65%" stop-color="#22d3ee"/><stop offset="100%" stop-color="#a78bfa"/>
-      </linearGradient></defs>
-      <circle cx="17" cy="17" r="15.2" stroke="url(#lg1)" stroke-width="2" fill="none"/>
-      <path d="M17 7.5L25 26.5H9L17 7.5Z" stroke="url(#lg1)" stroke-width="1.8" fill="none" stroke-linejoin="round"/>
-      <line x1="12" y1="21" x2="22" y2="21" stroke="url(#lg1)" stroke-width="1.8" stroke-linecap="round"/>
+<header>
+  <div class="logo">
+    <svg class="lsvg" viewBox="0 0 38 38" fill="none">
+      <circle cx="19" cy="19" r="18" stroke="#c9a84c" stroke-width=".8" opacity=".35"/>
+      <circle cx="19" cy="19" r="12" stroke="#c9a84c" stroke-width=".8" opacity=".55"/>
+      <path d="M19 4L22 11L19 9.5L16 11Z" fill="#e8c97a"/>
+      <path d="M19 34L16 27L19 28.5L22 27Z" fill="#c9a84c" opacity=".55"/>
+      <circle cx="19" cy="19" r="2.5" fill="#e8c97a"/>
+      <circle cx="19" cy="19" r="5" stroke="#c9a84c" stroke-width=".5" opacity=".4"/>
+      <line x1="19" y1="7" x2="19" y2="31" stroke="#c9a84c" stroke-width=".4" opacity=".3" stroke-dasharray="2 3"/>
+      <line x1="7" y1="19" x2="31" y2="19" stroke="#c9a84c" stroke-width=".4" opacity=".3" stroke-dasharray="2 3"/>
     </svg>
-    <span class="brand-text">Oracle Algo</span>
-  </a>
-  <div class="live-pill">
-    <span class="live-dot"></span>
-    <span class="live-text">Live · <span id="ts"></span></span>
+    <div class="ltxt">
+      <h1>Oracle Algo</h1>
+      <p>XAUUSD · Gold Oracle Scalper V1 · Live Backtest</p>
+    </div>
+  </div>
+  <div class="badge">
+    <span class="dot"></span>
+    Live · Updated: <span id="ts" style="color:var(--sub);margin-left:.3rem"></span>
   </div>
 </header>
- 
-<section class="hero">
-  <h1>Gold Oracle Scalper <span class="g">V1</span></h1>
-  <p class="hero-sub">Real-time signal tracking on XAUUSD. Every trade logged, every result verified. No cherry-picking.</p>
-  <div class="hero-meta">
-    <span>Tracking since <span id="since">—</span></span>
-    <span class="sep">·</span><span>Starting May 2026</span>
+
+<main>
+  <div class="hero">
+    <div class="hero-title">Gold Oracle Scalper V1 Backtest</div>
+    <div class="hero-sub">
+      Tracking since <span id="since"></span> &nbsp;·&nbsp; All signals combined &nbsp;·&nbsp; Starting May 2026
+    </div>
   </div>
-</section>
- 
-<div class="sdivider"></div>
- 
-<main class="container">
-  <section class="section">
-    <div class="kpi-grid" id="kpis"></div>
-  </section>
-  <div class="sdivider"></div>
-  <section class="section">
-    <div class="section-label">P&amp;L Breakdown</div>
-    <div class="section-title">Weekly &amp; Monthly Results</div>
-    <div class="section-sub">TV % and Fixed TP/SL % · Month resets monthly · History resets yearly</div>
-    <div class="two-col">
-      <div class="card">
-        <div class="card-title">⚡ Weekly P&amp;L — Current Month</div>
-        <div id="weekly-content"></div>
-      </div>
-      <div class="card">
-        <div class="card-title">📅 Monthly P&amp;L History</div>
-        <div id="monthly-content"></div>
-      </div>
+
+  <div class="kpi-row" id="kpis"></div>
+
+  <div class="two-col">
+    <div class="card">
+      <div class="card-title">⚡ Weekly P&L — Current Month</div>
+      <div id="weekly-content"></div>
     </div>
-  </section>
-  <div class="sdivider"></div>
-  <section class="section">
-    <div class="section-label">Equity Curve</div>
-    <div class="section-title">Annual Equity Curve</div>
-    <div class="section-sub">Cumulative performance month by month — current year</div>
-    <div class="chart-wrap">
-      <div class="chart-canvas"><canvas id="eqChart"></canvas></div>
+    <div class="card">
+      <div class="card-title">📅 Monthly P&L History</div>
+      <div id="monthly-content"></div>
     </div>
-  </section>
+  </div>
+
+  <div class="eq-wrap">
+    <div class="eq-title">📈 Annual Equity Curve — Cumulative Performance (TP/SL %)</div>
+    <div class="eq-chart"><canvas id="eqChart"></canvas></div>
+  </div>
 </main>
- 
+
 <footer>
-  <div class="footer-brand">Oracle Algo</div>
-  <div class="footer-text">
-    © 2025–2026 Oracle Algo · <a href="https://oraclealgo.com">oraclealgo.com</a> · All rights reserved.<br>
+  <div class="fl">Oracle Algo</div>
+  <div class="fc">
+    © 2025–2026 Oracle Algo · oraclealgo.com · All rights reserved.<br>
     Gold Oracle Scalper V1 · XAUUSD · Real-time tracking from May 2026<br>
     Past results do not guarantee future performance. For informational purposes only.
   </div>
 </footer>
-</div>
- 
+
 <script>
-const D={J};
-document.getElementById("ts").textContent=D.updated;
-document.getElementById("since").textContent=D.globalMetrics.firstDate;
-const gm=D.globalMetrics,mm=D.monthMetrics;
-function fmtPct(v){{return(v>=0?"+":"")+Number(v).toFixed(2)+"%"}}
-function clr(v){{return v>0?"var(--green)":v<0?"var(--red)":"var(--text-muted)"}}
- 
-const kpiData=[
-  {{label:"Win Rate",          val:gm.winrate+"%",        cls:"blue",   note:"All time · updates per trade"}},
-  {{label:"Profit Factor",     val:mm.profitFactor||"—",  cls:"purple", note:"Current month · resets monthly"}},
-  {{label:"Month Trades",      val:mm.total,               cls:"",       note:"Resets each month"}},
-  {{label:"Month Wins",        val:mm.wins,                cls:"green",  note:"Resets each month"}},
-  {{label:"Month Losses",      val:mm.losses,              cls:"red",    note:"Resets each month"}},
-  {{label:"Month TV %",        val:fmtPct(mm.cumTV||0),    cls:(mm.cumTV||0)>=0?"green":"red", note:"Monthly cumul. TV%"}},
-  {{label:"Month Fixed %",     val:fmtPct(mm.cumFixed||0), cls:(mm.cumFixed||0)>=0?"green":"red", note:"Monthly cumul. TP/SL%"}},
+const D  = {J};
+const mm = D.monthMetrics;
+const gm = D.globalMetrics;
+
+document.getElementById("ts").textContent    = D.updated;
+document.getElementById("since").textContent = D.globalMetrics.firstDate;
+
+function pct(v)   {{ return (v >= 0 ? "+" : "") + v.toFixed(2) + "%" }}
+function cc(v)    {{ return v > 0 ? "green" : v < 0 ? "red" : "" }}
+function fmtPF(v) {{ return v === "∞" ? "∞" : (v || "—") }}
+
+// Daily P&L from manual sheet
+const dailyVal  = D.dailyPL !== null && D.dailyPL !== undefined ? D.dailyPL : null;
+const dailyDisp = dailyVal !== null ? pct(dailyVal) : "—";
+const dailyCls  = dailyVal !== null ? cc(dailyVal) : "";
+
+// ── KPI cards ─────────────────────────────────────────────────────────────
+const kpiData = [
+  {{ label:"Win Rate",         val: gm.winrate + "%",       cls:"gold",    note:"All signals · All time" }},
+  {{ label:"Profit Factor",    val: fmtPF(gm.profitFactor), cls:"gold",    note:"All signals · All time" }},
+  {{ label:"Daily P&L",        val: dailyDisp,              cls:dailyCls,  note:"Manual · Today's TV strategy P&L" }},
+  {{ label:"Monthly Trades",   val: mm.total,               cls:"",        note:"Current month total" }},
+  {{ label:"Monthly Wins",     val: mm.wins,                cls:"green",   note:"Current month" }},
+  {{ label:"Monthly Losses",   val: mm.losses,              cls:"red",     note:"Current month" }},
+  {{ label:"Month TP/SL %",    val: pct(mm.monthPct),       cls: cc(mm.monthPct), note:"Monthly cumul. TP/SL %" }},
+  {{ label:"Total Trades",     val: gm.total,               cls:"",        note:"Since tracking started" }},
 ];
-const kRow=document.getElementById("kpis");
-kpiData.forEach(k=>{{kRow.innerHTML+=`<div class="kpi-card"><div class="kpi-label">${{k.label}}</div><div class="kpi-value ${{k.cls}}">${{k.val}}</div><div class="kpi-note">${{k.note}}</div></div>`;}});
- 
-const wEl=document.getElementById("weekly-content");
-const activeWeeks=D.weekly?D.weekly.filter(w=>w.trades>0):[];
-if(activeWeeks.length===0){{wEl.innerHTML=`<div class="pnl-empty">No trades this month yet</div>`;}}
-else{{D.weekly.forEach(w=>{{if(w.trades===0)return;wEl.innerHTML+=`<div class="pnl-row"><span class="pnl-label">${{w.label}}<span class="pnl-meta">${{w.trades}}T · ${{w.wins}}W</span></span><div class="pnl-vals"><span class="pnl-val" style="color:${{clr(w.pnlTV)}}">${{fmtPct(w.pnlTV)}} <span style="font-size:9px;color:var(--text-dim)">TV</span></span><span class="pnl-val-fix" style="color:${{clr(w.pnlFixed)}}">${{fmtPct(w.pnlFixed)}} <span style="font-size:9px;color:var(--text-dim)">Fixed</span></span></div></div>`;}});}}
- 
-const mEl=document.getElementById("monthly-content");
-if(!D.monthly||D.monthly.length===0){{mEl.innerHTML=`<div class="pnl-empty">No history yet</div>`;}}
-else{{[...D.monthly].reverse().forEach(m=>{{mEl.innerHTML+=`<div class="pnl-row"><span class="pnl-label">${{m.label}}<span class="pnl-meta">${{m.trades}}T · ${{m.wins}}W</span></span><div class="pnl-vals"><span class="pnl-val" style="color:${{clr(m.pnlTV)}}">${{fmtPct(m.pnlTV)}} <span style="font-size:9px;color:var(--text-dim)">TV</span></span><span class="pnl-val-fix" style="color:${{clr(m.pnlFixed)}}">${{fmtPct(m.pnlFixed)}} <span style="font-size:9px;color:var(--text-dim)">Fixed</span></span></div></div>`;}});}}
- 
-const eq=D.equity||[];
-const ctx=document.getElementById("eqChart").getContext("2d");
-const gTV=ctx.createLinearGradient(0,0,0,260);
-gTV.addColorStop(0,"rgba(99,179,237,0.18)");gTV.addColorStop(1,"rgba(99,179,237,0.0)");
-const gFix=ctx.createLinearGradient(0,0,0,260);
-gFix.addColorStop(0,"rgba(34,211,238,0.12)");gFix.addColorStop(1,"rgba(34,211,238,0.0)");
-new Chart(ctx,{{
-  type:"line",
-  data:{{labels:eq.map(p=>p.x),datasets:[
-    {{label:"TV %",data:eq.map(p=>p.tv),borderColor:"#63b3ed",borderWidth:2,backgroundColor:gTV,fill:true,pointRadius:eq.length<15?5:3,pointBackgroundColor:"#63b3ed",pointBorderColor:"#020409",pointBorderWidth:2,tension:.35}},
-    {{label:"Fixed %",data:eq.map(p=>p.fixed),borderColor:"#22d3ee",borderWidth:2,backgroundColor:gFix,fill:true,pointRadius:eq.length<15?5:3,pointBackgroundColor:"#22d3ee",pointBorderColor:"#020409",pointBorderWidth:2,tension:.35,borderDash:[5,3]}}
-  ]}},
-  options:{{responsive:true,maintainAspectRatio:false,
-    plugins:{{
-      legend:{{display:true,labels:{{color:"#7a90b5",font:{{family:"JetBrains Mono",size:10}},boxWidth:12,padding:16}}}},
-      tooltip:{{backgroundColor:"rgba(8,12,23,0.95)",borderColor:"rgba(99,179,237,0.2)",borderWidth:1,
-        titleFont:{{family:"JetBrains Mono",size:10}},bodyFont:{{family:"JetBrains Mono",size:12}},
-        callbacks:{{label:c=>" "+c.dataset.label+": "+(c.parsed.y>=0?"+":"")+c.parsed.y.toFixed(2)+"%"}}}}
+
+const kRow = document.getElementById("kpis");
+kpiData.forEach(k => {{
+  kRow.innerHTML += `
+  <div class="kpi">
+    <div class="kl">${{k.label}}</div>
+    <div class="kv ${{k.cls}}">${{k.val}}</div>
+    <div class="kn">${{k.note}}</div>
+  </div>`;
+}});
+
+// ── Weekly P&L ─────────────────────────────────────────────────────────────
+const wEl = document.getElementById("weekly-content");
+const activeWeeks = D.weekly ? D.weekly.filter(w => w.trades > 0) : [];
+if (activeWeeks.length === 0) {{
+  wEl.innerHTML = `<div class="pnl-empty">No trades this month yet</div>`;
+}} else {{
+  D.weekly.forEach(w => {{
+    if (w.trades === 0) return;
+    const col = w.pnl >= 0 ? "var(--grn)" : "var(--red)";
+    wEl.innerHTML += `
+    <div class="pnl-row">
+      <span class="pnl-label">${{w.label}}</span>
+      <span>
+        <span class="pnl-val" style="color:${{col}}">${{pct(w.pnl)}}</span>
+        <span class="pnl-meta">${{w.trades}} trades · ${{w.wins}}W</span>
+      </span>
+    </div>`;
+  }});
+}}
+
+// ── Monthly P&L history ────────────────────────────────────────────────────
+const mEl = document.getElementById("monthly-content");
+if (!D.monthly || D.monthly.length === 0) {{
+  mEl.innerHTML = `<div class="pnl-empty">No history yet</div>`;
+}} else {{
+  [...D.monthly].reverse().forEach(m => {{
+    const col = m.pnl >= 0 ? "var(--grn)" : "var(--red)";
+    mEl.innerHTML += `
+    <div class="pnl-row">
+      <span class="pnl-label">${{m.label}}</span>
+      <span>
+        <span class="pnl-val" style="color:${{col}}">${{pct(m.pnl)}}</span>
+        <span class="pnl-meta">${{m.trades}} trades</span>
+      </span>
+    </div>`;
+  }});
+}}
+
+// ── Annual Equity Curve ────────────────────────────────────────────────────
+const eq  = D.equity || [];
+const ctx = document.getElementById("eqChart").getContext("2d");
+const g   = ctx.createLinearGradient(0, 0, 0, 240);
+g.addColorStop(0, "#c9a84c38");
+g.addColorStop(1, "#c9a84c00");
+new Chart(ctx, {{
+  type: "line",
+  data: {{
+    labels: eq.map(p => p.x),
+    datasets: [{{
+      data: eq.map(p => p.y),
+      borderColor: "#c9a84c",
+      borderWidth: 2,
+      backgroundColor: g,
+      fill: true,
+      pointRadius: eq.length < 15 ? 5 : 3,
+      pointBackgroundColor: "#c9a84c",
+      tension: .35
+    }}]
+  }},
+  options: {{
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {{
+      legend: {{ display: false }},
+      tooltip: {{
+        callbacks: {{
+          label: c => " " + (c.parsed.y >= 0 ? "+" : "") + c.parsed.y.toFixed(2) + "%"
+        }}
+      }}
     }},
-    scales:{{
-      x:{{ticks:{{color:"#3d4e6a",font:{{family:"JetBrains Mono",size:10}}}},grid:{{color:"rgba(255,255,255,0.03)"}}}},
-      y:{{ticks:{{color:"#3d4e6a",font:{{family:"JetBrains Mono",size:10}},callback:v=>v+"%"}},grid:{{color:"rgba(255,255,255,0.03)"}}}}
+    scales: {{
+      x: {{
+        ticks: {{ color:"#55557a", font:{{ family:"JetBrains Mono", size:10 }} }},
+        grid:  {{ color:"rgba(255,255,255,.04)" }}
+      }},
+      y: {{
+        ticks: {{
+          color:"#55557a",
+          font:{{ family:"JetBrains Mono", size:10 }},
+          callback: v => v + "%"
+        }},
+        grid: {{ color:"rgba(255,255,255,.04)" }}
+      }}
     }}
   }}
 }});
-window.addEventListener("scroll",()=>document.getElementById("mainHeader").classList.toggle("scrolled",window.scrollY>50));
 </script>
 </body>
 </html>"""
- 
-with open("index.html","w",encoding="utf-8") as f:
+
+with open("index.html", "w", encoding="utf-8") as f:
     f.write(html)
+
 print("Dashboard generated — Gold Oracle Scalper V1")
-print(f"  Win Rate (month) : {mm['winrate']}%")
-print(f"  Profit Factor    : {mm['profitFactor']}")
-print(f"  Month Trades     : {mm['total']}")
-print(f"  Month TV%        : {mm['cumTV']}%")
-print(f"  Month Fixed%     : {mm['cumFixed']}%")
+print(f"  Win Rate     : {gm['winrate']}%")
+print(f"  Prof.Factor  : {gm['profitFactor']}")
+print(f"  Month TP/SL% : {mm['monthPct']}%")
+print(f"  Daily P&L    : {dailyPL}")
+print(f"  Total Trades : {gm['total']}")
