@@ -5,7 +5,7 @@ from datetime import datetime
 from urllib.parse import quote
  
 # ─── CONFIGURACIÓN ────────────────────────────────────────────────────────
-SHEET_ID = "1ox6Abqq3I6ElRwYc9a3lxes5n3AtspQLRskzBY90pxI"
+SHEET_ID = "TU_SHEET_ID_AQUI"
 SIGNALS  = ["Trend", "Momentum", "Reversal", "Cont.5M"]
 # ──────────────────────────────────────────────────────────────────────────
  
