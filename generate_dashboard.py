@@ -3,26 +3,25 @@ import json
 import calendar
 from datetime import datetime, date, timedelta
 from urllib.parse import quote
- 
+
 # ─── CAMBIA SOLO ESTO ─────────────────────────────────────────────────────
 SHEET_ID = "1ox6Abqq3I6ElRwYc9a3lxes5n3AtspQLRskzBY90pxI"
 SIGNALS  = ["Trend", "Momentum", "Reversal", "Cont.5M"]
 # ──────────────────────────────────────────────────────────────────────────
- 
+
 def csv_url(name):
     return (f"https://docs.google.com/spreadsheets/d/{SHEET_ID}"
             f"/gviz/tq?tqx=out:csv&sheet={quote(name)}")
- 
+
 COLS  = ["fecha","hora","tipoSenal","direccion","razon","pctTV","tpPct","slPct","pctFixed","tradeId"]
 EMPTY = pd.DataFrame(columns=COLS + ["win"])
- 
+
 def to_float(series):
-    """Convierte columna numérica aceptando tanto punto como coma decimal."""
     return pd.to_numeric(
         series.astype(str).str.replace(",", ".", regex=False),
         errors="coerce"
     ).fillna(0)
- 
+
 def load_sheet(name):
     try:
         raw = pd.read_csv(csv_url(name), header=0)
@@ -40,12 +39,12 @@ def load_sheet(name):
     except Exception as ex:
         print(f"Cannot load '{name}': {ex}")
         return EMPTY.copy()
- 
+
 now    = datetime.utcnow()
 dfs    = {n: load_sheet(n) for n in SIGNALS}
 all_df = pd.concat(list(dfs.values()), ignore_index=True) \
          if any(not d.empty for d in dfs.values()) else EMPTY.copy()
- 
+
 def global_metrics(df):
     if df.empty or "win" not in df.columns:
         return dict(total=0, wins=0, losses=0, winrate=0, profitFactor=0,
@@ -63,7 +62,7 @@ def global_metrics(df):
         firstDate=first,
         cumTV=round(float(df["pctTV"].sum()), 2)
     )
- 
+
 def month_metrics(df):
     if df.empty:
         return dict(total=0, wins=0, losses=0, cumTV=0, profitFactor=0, winrate=0)
@@ -80,52 +79,38 @@ def month_metrics(df):
         profitFactor=round(grossP / grossL, 2) if grossL > 0 else 0,
         winrate=round(len(wins) / len(cur) * 100, 1) if len(cur) > 0 else 0
     )
- 
+
 def weekly_pnl(df):
-    """Agrupa por semanas reales de lunes a domingo dentro del mes actual."""
     if df.empty: return []
     cur = df[(df["fecha"].dt.month == now.month) & (df["fecha"].dt.year == now.year)]
- 
     year, month   = now.year, now.month
     dim           = calendar.monthrange(year, month)[1]
     month_start   = date(year, month, 1)
     month_end     = date(year, month, dim)
- 
-    # Lunes de la semana que contiene el primer día del mes
     first_monday  = month_start - timedelta(days=month_start.weekday())
- 
     result    = []
     week_num  = 1
     monday    = first_monday
- 
     while monday <= month_end:
-        sunday = monday + timedelta(days=6)
- 
-        # Recortar al mes
+        sunday        = monday + timedelta(days=6)
         display_start = max(monday, month_start)
         display_end   = min(sunday, month_end)
- 
         if display_start <= month_end:
             ts_start = pd.Timestamp(display_start)
             ts_end   = pd.Timestamp(display_end) + pd.Timedelta(hours=23, minutes=59, seconds=59)
             wt   = cur[(cur["fecha"] >= ts_start) & (cur["fecha"] <= ts_end)]
             wins = wt[wt["win"] == True] if len(wt) > 0 else wt
- 
-            mn    = display_start.strftime("%b")
-            label = f"Week {week_num}  ·  {mn} {display_start.day}–{display_end.day}"
- 
+            mn   = display_start.strftime("%b")
             result.append({
-                "label":  label,
+                "label":  f"Week {week_num}  ·  {mn} {display_start.day}–{display_end.day}",
                 "pnlTV":  round(float(wt["pctTV"].sum()), 2) if len(wt) > 0 else 0,
                 "trades": len(wt),
                 "wins":   len(wins)
             })
             week_num += 1
- 
         monday += timedelta(days=7)
- 
     return result
- 
+
 def monthly_pnl(df):
     if df.empty: return []
     cur = df[df["fecha"].dt.year == now.year].copy().dropna(subset=["fecha"])
@@ -141,7 +126,7 @@ def monthly_pnl(df):
             "wins":   len(wins)
         })
     return result
- 
+
 def annual_equity(df):
     mp    = monthly_pnl(df)
     cumTV = 0
@@ -150,13 +135,13 @@ def annual_equity(df):
         cumTV = round(cumTV + m["pnlTV"], 2)
         pts.append({"x": m["label"], "tv": cumTV})
     return pts
- 
+
 gm = global_metrics(all_df)
 mm = month_metrics(all_df)
 wk = weekly_pnl(all_df)
 mp = monthly_pnl(all_df)
 eq = annual_equity(all_df)
- 
+
 data = {
     "updated":       now.strftime("%d/%m/%Y %H:%M UTC"),
     "globalMetrics": gm,
@@ -166,7 +151,7 @@ data = {
     "equity":        eq
 }
 J = json.dumps(data, ensure_ascii=False)
- 
+
 html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -195,26 +180,43 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font-b);overflow-
 .aurora-veil{{position:fixed;inset:0;z-index:1;background:linear-gradient(to bottom,rgba(2,4,9,0.25) 0%,rgba(2,4,9,0.6) 55%,rgba(2,4,9,0.97) 100%);pointer-events:none;}}
 .wrap{{position:relative;z-index:2;}}
 .container{{max-width:1400px;margin:0 auto;padding:0 32px;}}
+
+/* ── HEADER ── */
 header{{position:sticky;top:0;z-index:150;height:72px;padding:0 40px;background:rgba(2,4,9,0.0);backdrop-filter:blur(26px) saturate(1.5);display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid transparent;transition:background 0.3s,border-color 0.3s;}}
 header.scrolled{{background:rgba(2,4,9,0.7);border-color:var(--border);}}
-.brand{{display:flex;align-items:center;gap:10px;text-decoration:none;}}
+.brand{{display:flex;align-items:center;gap:12px;text-decoration:none;}}
 .brand-text{{font-family:var(--font-d);font-weight:800;font-size:22px;letter-spacing:2px;background:linear-gradient(90deg,#fff,var(--blue-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}}
 .live-pill{{display:flex;align-items:center;gap:7px;background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);border-radius:20px;padding:5px 14px;}}
 .live-dot{{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;flex-shrink:0;}}
 @keyframes pulse{{0%,100%{{box-shadow:0 0 0 0 rgba(52,211,153,0.5)}}50%{{box-shadow:0 0 0 5px rgba(52,211,153,0)}}}}
 .live-text{{font-family:var(--font-m);font-size:11px;color:var(--text-muted);}}
 .live-text span{{color:var(--text);}}
-.hero{{padding:60px 24px 64px;text-align:center;}}
+
+/* ── HERO ── */
+.hero{{padding:60px 24px 48px;text-align:center;}}
 .hero h1{{font-family:var(--font-d);font-size:clamp(48px,7vw,90px);font-weight:700;line-height:1.08;letter-spacing:-2px;color:#fff;margin-bottom:16px;}}
 .hero h1 .g{{background:linear-gradient(120deg,var(--blue-light) 0%,var(--cyan) 50%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}}
 .hero-sub{{font-size:clamp(16px,1.8vw,20px);color:var(--text-muted);max-width:620px;margin:0 auto 28px;font-weight:300;line-height:1.75;}}
-.hero-meta{{display:flex;align-items:center;justify-content:center;gap:24px;flex-wrap:wrap;font-family:var(--font-m);font-size:11px;color:var(--text-dim);}}
+.hero-meta{{display:flex;align-items:center;justify-content:center;gap:24px;flex-wrap:wrap;font-family:var(--font-m);font-size:11px;color:var(--text-dim);margin-bottom:28px;}}
 .hero-meta span{{color:var(--text-muted);}}.hero-meta .sep{{color:var(--text-dim);}}
+
+/* ── DISCLAIMER ── */
+.disclaimer-wrap{{display:flex;justify-content:center;padding:0 24px 16px;}}
+.disclaimer{{display:flex;align-items:flex-start;gap:14px;background:rgba(251,191,36,0.05);border:1px solid rgba(251,191,36,0.22);border-radius:var(--r);padding:18px 22px;max-width:780px;width:100%;}}
+.disclaimer-icon{{flex-shrink:0;margin-top:1px;}}
+.disclaimer-icon svg{{display:block;}}
+.disclaimer-body{{font-family:var(--font-m);font-size:11px;line-height:1.8;color:var(--text-muted);}}
+.disclaimer-body strong{{color:var(--yellow);font-weight:600;letter-spacing:0.05em;}}
+.disclaimer-body .dhl{{color:rgba(251,191,36,0.9);font-weight:600;}}
+
+/* ── DIVIDER / SECTIONS ── */
 .sdivider{{height:1px;background:linear-gradient(90deg,transparent,var(--border-bright),transparent);margin:0 auto;max-width:860px;}}
 .section{{padding:72px 0;}}
 .section-label{{font-family:var(--font-d);font-size:11px;font-weight:600;color:var(--blue-light);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px;text-align:center;}}
 .section-title{{font-family:var(--font-d);font-size:clamp(26px,3.5vw,38px);font-weight:700;color:var(--text);margin-bottom:4px;text-align:center;}}
 .section-sub{{font-size:16px;color:var(--text-muted);font-weight:300;text-align:center;}}
+
+/* ── KPI ── */
 .kpi-grid{{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-top:32px;}}
 @media(max-width:1000px){{.kpi-grid{{grid-template-columns:repeat(3,1fr);}}}}
 @media(max-width:560px){{.kpi-grid{{grid-template-columns:repeat(2,1fr);}}}}
@@ -226,6 +228,8 @@ header.scrolled{{background:rgba(2,4,9,0.7);border-color:var(--border);}}
 .kpi-value.blue{{background:linear-gradient(120deg,var(--blue-light),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}}
 .kpi-value.green{{color:var(--green);}}.kpi-value.red{{color:var(--red);}}.kpi-value.purple{{color:var(--purple);}}
 .kpi-note{{font-family:var(--font-m);font-size:11px;color:var(--text-dim);margin-top:10px;}}
+
+/* ── CARDS ── */
 .two-col{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:32px;}}
 @media(max-width:680px){{.two-col{{grid-template-columns:1fr;}}}}
 .card{{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:28px;}}
@@ -236,10 +240,15 @@ header.scrolled{{background:rgba(2,4,9,0.7);border-color:var(--border);}}
 .pnl-meta{{font-family:var(--font-m);font-size:10px;color:var(--text-dim);margin-top:2px;display:block;}}
 .pnl-val{{font-family:var(--font-m);font-size:15px;font-weight:600;}}
 .pnl-empty{{font-family:var(--font-m);font-size:12px;color:var(--text-dim);text-align:center;padding:24px 0;}}
+
+/* ── CHART ── */
 .chart-wrap{{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:24px;margin-top:32px;}}
 .chart-canvas{{position:relative;height:320px;}}
+
+/* ── FOOTER ── */
 footer{{border-top:1px solid var(--border);padding:40px 24px;text-align:center;margin-top:80px;}}
-.footer-brand{{font-family:var(--font-d);font-weight:800;font-size:20px;letter-spacing:2px;background:linear-gradient(90deg,#fff,var(--blue-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:12px;}}
+.footer-brand{{display:inline-flex;align-items:center;gap:10px;margin-bottom:12px;}}
+.footer-brand-text{{font-family:var(--font-d);font-weight:800;font-size:20px;letter-spacing:2px;background:linear-gradient(90deg,#fff,var(--blue-light));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}}
 .footer-text{{font-family:var(--font-m);font-size:11px;color:var(--text-dim);line-height:2;max-width:600px;margin:0 auto;}}
 .footer-text a{{color:var(--text-muted);text-decoration:none;}}.footer-text a:hover{{color:var(--blue-light);}}
 </style>
@@ -248,17 +257,27 @@ footer{{border-top:1px solid var(--border);padding:40px 24px;text-align:center;m
 <div class="aurora"><div class="ac"></div></div>
 <div class="aurora-veil"></div>
 <div class="wrap">
- 
+
+<!-- ══ HEADER ══ -->
 <header id="mainHeader">
   <a class="brand" href="#">
-    <svg width="32" height="32" viewBox="0 0 34 34" fill="none">
-      <defs><linearGradient id="lg1" x1="0" y1="0" x2="34" y2="34" gradientUnits="userSpaceOnUse">
-        <stop offset="0%" stop-color="#ffffff"/><stop offset="35%" stop-color="#63b3ed"/>
-        <stop offset="65%" stop-color="#22d3ee"/><stop offset="100%" stop-color="#a78bfa"/>
-      </linearGradient></defs>
-      <circle cx="17" cy="17" r="15.2" stroke="url(#lg1)" stroke-width="2" fill="none"/>
-      <path d="M17 7.5L25 26.5H9L17 7.5Z" stroke="url(#lg1)" stroke-width="1.8" fill="none" stroke-linejoin="round"/>
-      <line x1="12" y1="21" x2="22" y2="21" stroke="url(#lg1)" stroke-width="1.8" stroke-linecap="round"/>
+    <!-- Oracle Algo logo -->
+    <svg width="38" height="38" viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="hdr-lg" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%"   stop-color="#ffffff"/>
+          <stop offset="32%"  stop-color="#63b3ed"/>
+          <stop offset="62%"  stop-color="#22d3ee"/>
+          <stop offset="100%" stop-color="#a78bfa"/>
+        </linearGradient>
+        <filter id="hdr-glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="9" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <polyline points="231,570 400,160 569,570" fill="none" stroke="url(#hdr-lg)" stroke-width="22" stroke-linecap="butt" stroke-linejoin="round" filter="url(#hdr-glow)"/>
+      <line x1="299" y1="406" x2="501" y2="406" stroke="url(#hdr-lg)" stroke-width="22" stroke-linecap="round" filter="url(#hdr-glow)"/>
+      <circle cx="400" cy="400" r="240" fill="none" stroke="url(#hdr-lg)" stroke-width="22" filter="url(#hdr-glow)"/>
     </svg>
     <span class="brand-text">Oracle Algo</span>
   </a>
@@ -267,18 +286,38 @@ footer{{border-top:1px solid var(--border);padding:40px 24px;text-align:center;m
     <span class="live-text">Live · <span id="ts"></span></span>
   </div>
 </header>
- 
+
+<!-- ══ HERO ══ -->
 <section class="hero">
   <h1>Gold Oracle Scalper <span class="g">V1</span></h1>
   <p class="hero-sub">Real-time signal tracking on XAUUSD. Every trade logged, every result verified. No cherry-picking.</p>
   <div class="hero-meta">
     <span>Tracking since <span id="since">—</span></span>
-    <span class="sep">·</span><span>Starting May 2026</span>
+    <span class="sep">·</span>
+    <span>Starting May 2026</span>
+  </div>
+
+  <!-- ══ DISCLAIMER ══ -->
+  <div class="disclaimer-wrap">
+    <div class="disclaimer">
+      <span class="disclaimer-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke="#fbbf24" stroke-width="1.8" stroke-linejoin="round" fill="rgba(251,191,36,0.12)"/>
+          <line x1="12" y1="9" x2="12" y2="13" stroke="#fbbf24" stroke-width="1.8" stroke-linecap="round"/>
+          <circle cx="12" cy="17" r="0.5" fill="#fbbf24" stroke="#fbbf24" stroke-width="1.5"/>
+        </svg>
+      </span>
+      <div class="disclaimer-body">
+        <strong>WARNING — HOW TP &amp; SL PERCENTAGES ARE CALCULATED</strong><br>
+        The profit and loss figures shown in this dashboard are derived directly from the <span class="dhl">Take Profit (TP)</span> and <span class="dhl">Stop Loss (SL)</span> levels configured within the strategy settings on TradingView — they represent percentage moves on the asset price, not account risk or position sizing. For reference, this strategy is designed to target a Take Profit of approximately <span class="dhl">0.80% – 1.00%</span> per trade on XAUUSD, while the maximum tolerated drawdown per trade (Stop Loss) is set between <span class="dhl">0.20% – 0.30%</span>. All results reflect live signal tracking from May 2026. Past performance does not guarantee future results.
+      </div>
+    </div>
   </div>
 </section>
- 
+
 <div class="sdivider"></div>
- 
+
+<!-- ══ MAIN ══ -->
 <main class="container">
   <section class="section">
     <div class="kpi-grid" id="kpis"></div>
@@ -287,7 +326,7 @@ footer{{border-top:1px solid var(--border);padding:40px 24px;text-align:center;m
   <section class="section">
     <div class="section-label">P&amp;L Breakdown</div>
     <div class="section-title">Weekly &amp; Monthly Results</div>
-    <div class="section-sub">TV % · semanas reales Lun–Dom · historial anual</div>
+    <div class="section-sub">TV % · Real Mon–Sun weeks · Annual history</div>
     <div class="two-col">
       <div class="card">
         <div class="card-title">⚡ Weekly P&amp;L — Current Month</div>
@@ -309,9 +348,25 @@ footer{{border-top:1px solid var(--border);padding:40px 24px;text-align:center;m
     </div>
   </section>
 </main>
- 
+
+<!-- ══ FOOTER ══ -->
 <footer>
-  <div class="footer-brand">Oracle Algo</div>
+  <div class="footer-brand">
+    <svg width="22" height="22" viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="ftr-lg" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%"   stop-color="#ffffff"/>
+          <stop offset="32%"  stop-color="#63b3ed"/>
+          <stop offset="62%"  stop-color="#22d3ee"/>
+          <stop offset="100%" stop-color="#a78bfa"/>
+        </linearGradient>
+      </defs>
+      <polyline points="231,570 400,160 569,570" fill="none" stroke="url(#ftr-lg)" stroke-width="28" stroke-linecap="butt" stroke-linejoin="round"/>
+      <line x1="299" y1="406" x2="501" y2="406" stroke="url(#ftr-lg)" stroke-width="28" stroke-linecap="round"/>
+      <circle cx="400" cy="400" r="240" fill="none" stroke="url(#ftr-lg)" stroke-width="28"/>
+    </svg>
+    <span class="footer-brand-text">Oracle Algo</span>
+  </div>
   <div class="footer-text">
     © 2025–2026 Oracle Algo · <a href="https://oraclealgo.com">oraclealgo.com</a> · All rights reserved.<br>
     Gold Oracle Scalper V1 · XAUUSD · Real-time tracking from May 2026<br>
@@ -319,7 +374,7 @@ footer{{border-top:1px solid var(--border);padding:40px 24px;text-align:center;m
   </div>
 </footer>
 </div>
- 
+
 <script>
 const D={J};
 document.getElementById("ts").textContent=D.updated;
@@ -327,7 +382,7 @@ document.getElementById("since").textContent=D.globalMetrics.firstDate;
 const gm=D.globalMetrics, mm=D.monthMetrics;
 function fmtPct(v){{return(v>=0?"+":"")+Number(v).toFixed(2)+"%"}}
 function clr(v){{return v>0?"var(--green)":v<0?"var(--red)":"var(--text-muted)"}}
- 
+
 const kpiData=[
   {{label:"Win Rate",     val:gm.winrate+"%",      cls:"blue",   note:"All time · updates per trade"}},
   {{label:"Profit Factor",val:mm.profitFactor||"—",cls:"purple", note:"Current month · resets monthly"}},
@@ -340,7 +395,7 @@ const kRow=document.getElementById("kpis");
 kpiData.forEach(k=>{{
   kRow.innerHTML+=`<div class="kpi-card"><div class="kpi-label">${{k.label}}</div><div class="kpi-value ${{k.cls}}">${{k.val}}</div><div class="kpi-note">${{k.note}}</div></div>`;
 }});
- 
+
 const wEl=document.getElementById("weekly-content");
 const activeWeeks=D.weekly?D.weekly.filter(w=>w.trades>0):[];
 if(activeWeeks.length===0){{
@@ -355,7 +410,7 @@ if(activeWeeks.length===0){{
       </div>`;
   }});
 }}
- 
+
 const mEl=document.getElementById("monthly-content");
 if(!D.monthly||D.monthly.length===0){{
   mEl.innerHTML=`<div class="pnl-empty">No history yet</div>`;
@@ -368,7 +423,7 @@ if(!D.monthly||D.monthly.length===0){{
       </div>`;
   }});
 }}
- 
+
 const eq=D.equity||[];
 const ctx=document.getElementById("eqChart").getContext("2d");
 const grad=ctx.createLinearGradient(0,0,0,260);
@@ -415,7 +470,7 @@ window.addEventListener("scroll",()=>document.getElementById("mainHeader").class
 </script>
 </body>
 </html>"""
- 
+
 with open("index.html","w",encoding="utf-8") as f:
     f.write(html)
 print("Dashboard generated — Gold Oracle Scalper V1")
