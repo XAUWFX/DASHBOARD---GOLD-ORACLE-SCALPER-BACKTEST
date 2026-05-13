@@ -1,7 +1,7 @@
 import pandas as pd
 import json
 import calendar
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from urllib.parse import quote
  
 # ─── CAMBIA SOLO ESTO ─────────────────────────────────────────────────────
@@ -82,22 +82,48 @@ def month_metrics(df):
     )
  
 def weekly_pnl(df):
+    """Agrupa por semanas reales de lunes a domingo dentro del mes actual."""
     if df.empty: return []
     cur = df[(df["fecha"].dt.month == now.month) & (df["fecha"].dt.year == now.year)]
-    dim = calendar.monthrange(now.year, now.month)[1]
-    mn  = now.strftime("%b")
-    result = []
-    for i, (ws, we) in enumerate([(1,7),(8,14),(15,21),(22,28),(29,dim)]):
-        if ws > dim: break
-        we = min(we, dim)
-        wt   = cur[(cur["fecha"].dt.day >= ws) & (cur["fecha"].dt.day <= we)]
-        wins = wt[wt["win"] == True] if len(wt) > 0 else wt
-        result.append({
-            "label":  f"Week {i+1}  ·  {mn} {ws}–{we}",
-            "pnlTV":  round(float(wt["pctTV"].sum()), 2) if len(wt) > 0 else 0,
-            "trades": len(wt),
-            "wins":   len(wins)
-        })
+ 
+    year, month   = now.year, now.month
+    dim           = calendar.monthrange(year, month)[1]
+    month_start   = date(year, month, 1)
+    month_end     = date(year, month, dim)
+ 
+    # Lunes de la semana que contiene el primer día del mes
+    first_monday  = month_start - timedelta(days=month_start.weekday())
+ 
+    result    = []
+    week_num  = 1
+    monday    = first_monday
+ 
+    while monday <= month_end:
+        sunday = monday + timedelta(days=6)
+ 
+        # Recortar al mes
+        display_start = max(monday, month_start)
+        display_end   = min(sunday, month_end)
+ 
+        if display_start <= month_end:
+            ts_start = pd.Timestamp(display_start)
+            ts_end   = pd.Timestamp(display_end) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+            wt   = cur[(cur["fecha"] >= ts_start) & (cur["fecha"] <= ts_end)]
+            wins = wt[wt["win"] == True] if len(wt) > 0 else wt
+ 
+            mn    = display_start.strftime("%b")
+            label = f"Week {week_num}  ·  {mn} {display_start.day}–{display_end.day}"
+ 
+            result.append({
+                "label":  label,
+                "pnlTV":  round(float(wt["pctTV"].sum()), 2) if len(wt) > 0 else 0,
+                "trades": len(wt),
+                "wins":   len(wins)
+            })
+            week_num += 1
+ 
+        monday += timedelta(days=7)
+ 
     return result
  
 def monthly_pnl(df):
@@ -117,7 +143,7 @@ def monthly_pnl(df):
     return result
  
 def annual_equity(df):
-    mp = monthly_pnl(df)
+    mp    = monthly_pnl(df)
     cumTV = 0
     pts   = []
     for m in mp:
@@ -261,7 +287,7 @@ footer{{border-top:1px solid var(--border);padding:40px 24px;text-align:center;m
   <section class="section">
     <div class="section-label">P&amp;L Breakdown</div>
     <div class="section-title">Weekly &amp; Monthly Results</div>
-    <div class="section-sub">TV % · Month resets monthly · History resets yearly</div>
+    <div class="section-sub">TV % · semanas reales Lun–Dom · historial anual</div>
     <div class="two-col">
       <div class="card">
         <div class="card-title">⚡ Weekly P&amp;L — Current Month</div>
