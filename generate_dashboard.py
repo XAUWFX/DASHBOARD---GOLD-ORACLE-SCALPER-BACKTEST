@@ -16,6 +16,13 @@ def csv_url(name):
 COLS  = ["fecha","hora","tipoSenal","direccion","razon","pctTV","tpPct","slPct","pctFixed","tradeId"]
 EMPTY = pd.DataFrame(columns=COLS + ["win"])
  
+def to_float(series):
+    """Convierte columna numérica aceptando tanto punto como coma decimal."""
+    return pd.to_numeric(
+        series.astype(str).str.replace(",", ".", regex=False),
+        errors="coerce"
+    ).fillna(0)
+ 
 def load_sheet(name):
     try:
         raw = pd.read_csv(csv_url(name), header=0)
@@ -27,7 +34,7 @@ def load_sheet(name):
             if c not in raw.columns:
                 raw[c] = None
         raw["fecha"] = pd.to_datetime(raw["fecha"], dayfirst=True, errors="coerce")
-        raw["pctTV"] = pd.to_numeric(raw["pctTV"], errors="coerce").fillna(0)
+        raw["pctTV"] = to_float(raw["pctTV"])
         raw["win"]   = raw["razon"].astype(str).str.contains("Take Profit", na=False)
         return raw.dropna(subset=["fecha"])
     except Exception as ex:
