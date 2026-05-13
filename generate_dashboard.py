@@ -5,7 +5,7 @@ from datetime import datetime
 from urllib.parse import quote
  
 # ─── CAMBIA SOLO ESTO ─────────────────────────────────────────────────────
-SHEET_ID = "TU_SHEET_ID_AQUI"
+SHEET_ID = "1ox6Abqq3I6ElRwYc9a3lxes5n3AtspQLRskzBY90pxI"
 SIGNALS  = ["Trend", "Momentum", "Reversal", "Cont.5M"]
 # ──────────────────────────────────────────────────────────────────────────
  
@@ -35,23 +35,10 @@ def load_sheet(name):
         print(f"Cannot load '{name}': {ex}")
         return EMPTY.copy()
  
-def load_tv_daily():
-    try:
-        raw = pd.read_csv(csv_url("TV DAILY P&L"), header=0)
-        if raw.empty or len(raw.columns) < 2:
-            return pd.DataFrame(columns=["fecha","pctTV"])
-        raw.columns = ["fecha","pctTV","notes"][:len(raw.columns)]
-        raw["fecha"] = pd.to_datetime(raw["fecha"], dayfirst=True, errors="coerce")
-        raw["pctTV"] = pd.to_numeric(raw["pctTV"], errors="coerce").fillna(0)
-        return raw.dropna(subset=["fecha"])
-    except:
-        return pd.DataFrame(columns=["fecha","pctTV"])
- 
 now    = datetime.utcnow()
 dfs    = {n: load_sheet(n) for n in SIGNALS}
 all_df = pd.concat(list(dfs.values()), ignore_index=True) \
          if any(not d.empty for d in dfs.values()) else EMPTY.copy()
-tv_daily = load_tv_daily()
  
 def global_metrics(df):
     if df.empty or "win" not in df.columns:
@@ -107,7 +94,7 @@ def weekly_pnl(df):
         })
     return result
  
-def monthly_pnl(df, tv_df):
+def monthly_pnl(df):
     if df.empty: return []
     cur = df[df["fecha"].dt.year==now.year].copy().dropna(subset=["fecha"])
     if cur.empty: return []
@@ -115,58 +102,33 @@ def monthly_pnl(df, tv_df):
     result=[]
     for period,g in cur.groupby("month"):
         wins=g[g["win"]==True]
-        # TV strategy P&L from manual sheet for this month
-        tvStrat = 0
-        if not tv_df.empty:
-            tv_month = tv_df[
-                (tv_df["fecha"].dt.month==period.month)&
-                (tv_df["fecha"].dt.year==period.year)
-            ]
-            if not tv_month.empty:
-                tvStrat = round(float(tv_month["pctTV"].sum()),2)
         result.append({
             "label":    period.strftime("%b %Y"),
             "pnlTV":    round(float(g["pctTV"].sum()),2),
             "pnlFixed": round(float(g["pctFixed"].sum()),2),
-            "pnlStrat": tvStrat,
             "trades":   len(g), "wins": len(wins)
         })
     return result
  
-def annual_equity(df, tv_df):
-    mp=monthly_pnl(df, tv_df)
-    cumTV=0; cumFix=0; cumStrat=0; pts=[]
+def annual_equity(df):
+    mp=monthly_pnl(df)
+    cumTV=0; cumFix=0; pts=[]
     for m in mp:
-        cumTV   =round(cumTV   +m["pnlTV"],   2)
-        cumFix  =round(cumFix  +m["pnlFixed"],2)
-        cumStrat=round(cumStrat+m["pnlStrat"],2)
-        pts.append({"x":m["label"],"tv":cumTV,"fixed":cumFix,"strat":cumStrat})
+        cumTV =round(cumTV +m["pnlTV"],   2)
+        cumFix=round(cumFix+m["pnlFixed"],2)
+        pts.append({"x":m["label"],"tv":cumTV,"fixed":cumFix})
     return pts
  
 gm  = global_metrics(all_df)
 mm  = month_metrics(all_df)
 wk  = weekly_pnl(all_df)
-mp  = monthly_pnl(all_df, tv_daily)
-eq  = annual_equity(all_df, tv_daily)
- 
-# TV Daily P&L for current month
-tv_month_data = []
-if not tv_daily.empty:
-    tv_cur = tv_daily[
-        (tv_daily["fecha"].dt.month==now.month)&
-        (tv_daily["fecha"].dt.year==now.year)
-    ].sort_values("fecha")
-    for _,row in tv_cur.iterrows():
-        tv_month_data.append({
-            "date": row["fecha"].strftime("%d/%m/%Y"),
-            "pct":  round(float(row["pctTV"]),2)
-        })
+mp  = monthly_pnl(all_df)
+eq  = annual_equity(all_df)
  
 data={
     "updated":      now.strftime("%d/%m/%Y %H:%M UTC"),
     "globalMetrics":gm, "monthMetrics":mm,
-    "weekly":wk, "monthly":mp, "equity":eq,
-    "tvDaily":tv_month_data
+    "weekly":wk, "monthly":mp, "equity":eq
 }
 J=json.dumps(data,ensure_ascii=False)
  
@@ -231,9 +193,6 @@ header.scrolled{{background:rgba(2,4,9,0.7);border-color:var(--border);}}
 .kpi-note{{font-family:var(--font-m);font-size:11px;color:var(--text-dim);margin-top:10px;}}
 .two-col{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:32px;}}
 @media(max-width:680px){{.two-col{{grid-template-columns:1fr;}}}}
-.three-col{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:32px;}}
-@media(max-width:900px){{.three-col{{grid-template-columns:1fr 1fr;}}}}
-@media(max-width:560px){{.three-col{{grid-template-columns:1fr;}}}}
 .card{{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:28px;}}
 .card-title{{font-family:var(--font-d);font-size:13px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;}}
 .pnl-row{{display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);gap:8px;}}
@@ -296,7 +255,7 @@ footer{{border-top:1px solid var(--border);padding:40px 24px;text-align:center;m
     <div class="section-label">P&amp;L Breakdown</div>
     <div class="section-title">Weekly &amp; Monthly Results</div>
     <div class="section-sub">Fixed TP/SL % · Month resets monthly · History resets yearly</div>
-    <div class="three-col">
+    <div class="two-col">
       <div class="card">
         <div class="card-title">⚡ Weekly P&amp;L — Current Month</div>
         <div id="weekly-content"></div>
@@ -304,10 +263,6 @@ footer{{border-top:1px solid var(--border);padding:40px 24px;text-align:center;m
       <div class="card">
         <div class="card-title">📅 Monthly P&amp;L History</div>
         <div id="monthly-content"></div>
-      </div>
-      <div class="card">
-        <div class="card-title">📊 TV Strategy P&amp;L — This Month</div>
-        <div id="tv-daily-content"></div>
       </div>
     </div>
   </section>
@@ -359,17 +314,7 @@ else{{D.weekly.forEach(w=>{{if(w.trades===0)return;wEl.innerHTML+=`<div class="p
  
 const mEl=document.getElementById("monthly-content");
 if(!D.monthly||D.monthly.length===0){{mEl.innerHTML=`<div class="pnl-empty">No history yet</div>`;}}
-else{{[...D.monthly].reverse().forEach(m=>{{mEl.innerHTML+=`<div class="pnl-row"><span class="pnl-label">${{m.label}}<span class="pnl-meta">${{m.trades}}T · ${{m.wins}}W</span></span><div class="pnl-vals"><span class="pnl-val" style="color:${{clr(m.pnlFixed)}}">${{fmtPct(m.pnlFixed)}} <span style="font-size:9px;color:var(--text-dim)">Fixed</span></span><span class="pnl-val-fix" style="color:${{clr(m.pnlTV)}}">${{fmtPct(m.pnlTV)}} <span style="font-size:9px;color:var(--text-dim)">TV</span></span>${{m.pnlStrat!==0?`<span class="pnl-val-fix" style="color:${{clr(m.pnlStrat)}}">${{fmtPct(m.pnlStrat)}} <span style="font-size:9px;color:var(--text-dim)">Strategy</span></span>`:""}}</div></div>`;}});}}
- 
-const tvEl=document.getElementById("tv-daily-content");
-if(!D.tvDaily||D.tvDaily.length===0){{tvEl.innerHTML=`<div class="pnl-empty">No data yet — add entries in TV DAILY P&L sheet</div>`;}}
-else{{
-  var cumPct=0;
-  D.tvDaily.forEach(function(d){{
-    cumPct=Math.round((cumPct+d.pct)*100)/100;
-    tvEl.innerHTML+=`<div class="pnl-row"><span class="pnl-label">${{d.date}}</span><div class="pnl-vals"><span class="pnl-val" style="color:${{clr(d.pct)}}">${{fmtPct(d.pct)}}</span><span class="pnl-val-fix" style="color:${{clr(cumPct)}}">Cumul: ${{fmtPct(cumPct)}}</span></div></div>`;
-  }});
-}}
+else{{[...D.monthly].reverse().forEach(m=>{{mEl.innerHTML+=`<div class="pnl-row"><span class="pnl-label">${{m.label}}<span class="pnl-meta">${{m.trades}}T · ${{m.wins}}W</span></span><div class="pnl-vals"><span class="pnl-val" style="color:${{clr(m.pnlFixed)}}">${{fmtPct(m.pnlFixed)}} <span style="font-size:9px;color:var(--text-dim)">Fixed</span></span><span class="pnl-val-fix" style="color:${{clr(m.pnlTV)}}">${{fmtPct(m.pnlTV)}} <span style="font-size:9px;color:var(--text-dim)">TV</span></span></div></div>`;}});}}
  
 const eq=D.equity||[];
 const ctx=document.getElementById("eqChart").getContext("2d");
@@ -377,14 +322,10 @@ const gTV=ctx.createLinearGradient(0,0,0,260);
 gTV.addColorStop(0,"rgba(99,179,237,0.18)");gTV.addColorStop(1,"rgba(99,179,237,0.0)");
 const gFix=ctx.createLinearGradient(0,0,0,260);
 gFix.addColorStop(0,"rgba(34,211,238,0.12)");gFix.addColorStop(1,"rgba(34,211,238,0.0)");
-const gStr=ctx.createLinearGradient(0,0,0,260);
-gStr.addColorStop(0,"rgba(251,191,36,0.12)");gStr.addColorStop(1,"rgba(251,191,36,0.0)");
 const datasets=[
   {{label:"Fixed %",data:eq.map(p=>p.fixed),borderColor:"#63b3ed",borderWidth:2,backgroundColor:gTV,fill:true,pointRadius:eq.length<15?5:3,pointBackgroundColor:"#63b3ed",pointBorderColor:"#020409",pointBorderWidth:2,tension:.35}},
   {{label:"TV %",data:eq.map(p=>p.tv),borderColor:"#22d3ee",borderWidth:2,backgroundColor:gFix,fill:true,pointRadius:eq.length<15?5:3,pointBackgroundColor:"#22d3ee",pointBorderColor:"#020409",pointBorderWidth:2,tension:.35,borderDash:[5,3]}}
 ];
-const hasStrat=eq.some(p=>p.strat!==0);
-if(hasStrat){{datasets.push({{label:"Strategy %",data:eq.map(p=>p.strat),borderColor:"#fbbf24",borderWidth:2,backgroundColor:gStr,fill:true,pointRadius:eq.length<15?5:3,pointBackgroundColor:"#fbbf24",pointBorderColor:"#020409",pointBorderWidth:2,tension:.35,borderDash:[2,4]}});}}
 new Chart(ctx,{{
   type:"line",data:{{labels:eq.map(p=>p.x),datasets:datasets}},
   options:{{responsive:true,maintainAspectRatio:false,
