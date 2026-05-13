@@ -46,8 +46,8 @@ header.scrolled{background:rgba(2,4,9,0.7);border-color:var(--border);}
 .section-label{font-family:var(--font-d);font-size:11px;font-weight:600;color:var(--blue-light);text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px;text-align:center;}
 .section-title{font-family:var(--font-d);font-size:clamp(26px,3.5vw,38px);font-weight:700;color:var(--text);margin-bottom:4px;text-align:center;}
 .section-sub{font-size:16px;color:var(--text-muted);font-weight:300;text-align:center;}
-.kpi-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;margin-top:32px;}
-@media(max-width:1000px){.kpi-grid{grid-template-columns:repeat(4,1fr);}}
+.kpi-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-top:32px;}
+@media(max-width:1000px){.kpi-grid{grid-template-columns:repeat(3,1fr);}}
 @media(max-width:560px){.kpi-grid{grid-template-columns:repeat(2,1fr);}}
 .kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:22px 18px;position:relative;overflow:hidden;transition:border-color 0.2s,transform 0.15s;}
 .kpi-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(99,179,237,0.25),transparent);}
@@ -61,13 +61,11 @@ header.scrolled{background:rgba(2,4,9,0.7);border-color:var(--border);}
 @media(max-width:680px){.two-col{grid-template-columns:1fr;}}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:28px;}
 .card-title{font-family:var(--font-d);font-size:13px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;}
-.pnl-row{display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);gap:8px;}
+.pnl-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);gap:8px;}
 .pnl-row:last-child{border-bottom:none;padding-bottom:0;}
 .pnl-label{font-family:var(--font-m);font-size:12px;color:var(--text-muted);padding-top:2px;flex-shrink:0;}
-.pnl-vals{display:flex;flex-direction:column;align-items:flex-end;gap:3px;}
-.pnl-val{font-family:var(--font-m);font-size:15px;font-weight:600;}
-.pnl-val-fix{font-family:var(--font-m);font-size:12px;font-weight:500;}
 .pnl-meta{font-family:var(--font-m);font-size:10px;color:var(--text-dim);margin-top:2px;display:block;}
+.pnl-val{font-family:var(--font-m);font-size:15px;font-weight:600;}
 .pnl-empty{font-family:var(--font-m);font-size:12px;color:var(--text-dim);text-align:center;padding:24px 0;}
 .chart-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:24px;margin-top:32px;}
 .chart-canvas{position:relative;height:320px;}
@@ -120,7 +118,7 @@ footer{border-top:1px solid var(--border);padding:40px 24px;text-align:center;ma
   <section class="section">
     <div class="section-label">P&amp;L Breakdown</div>
     <div class="section-title">Weekly &amp; Monthly Results</div>
-    <div class="section-sub">Fixed TP/SL % · Month resets monthly · History resets yearly</div>
+    <div class="section-sub">TV % · Month resets monthly · History resets yearly</div>
     <div class="two-col">
       <div class="card">
         <div class="card-title">⚡ Weekly P&amp;L — Current Month</div>
@@ -136,7 +134,7 @@ footer{border-top:1px solid var(--border);padding:40px 24px;text-align:center;ma
   <section class="section">
     <div class="section-label">Equity Curve</div>
     <div class="section-title">Annual Equity Curve</div>
-    <div class="section-sub">Cumulative performance month by month — current year</div>
+    <div class="section-sub">Cumulative TV % month by month — current year</div>
     <div class="chart-wrap">
       <div class="chart-canvas"><canvas id="eqChart"></canvas></div>
     </div>
@@ -154,7 +152,7 @@ footer{border-top:1px solid var(--border);padding:40px 24px;text-align:center;ma
 </div>
  
 <script>
-const D={"updated": "13/05/2026 10:34 UTC", "globalMetrics": {"total": 4, "wins": 2, "losses": 2, "winrate": 50.0, "profitFactor": 0, "firstDate": "12/05/2026", "cumTV": 2.0, "cumFixed": 0.0}, "monthMetrics": {"total": 4, "wins": 2, "losses": 2, "cumTV": 2.0, "cumFixed": 0.0, "profitFactor": 0, "winrate": 50.0}, "weekly": [{"label": "Week 1  ·  May 1–7", "pnlTV": 0, "pnlFixed": 0, "trades": 0, "wins": 0}, {"label": "Week 2  ·  May 8–14", "pnlTV": 2.0, "pnlFixed": 0.0, "trades": 4, "wins": 2}, {"label": "Week 3  ·  May 15–21", "pnlTV": 0, "pnlFixed": 0, "trades": 0, "wins": 0}, {"label": "Week 4  ·  May 22–28", "pnlTV": 0, "pnlFixed": 0, "trades": 0, "wins": 0}, {"label": "Week 5  ·  May 29–31", "pnlTV": 0, "pnlFixed": 0, "trades": 0, "wins": 0}], "monthly": [{"label": "May 2026", "pnlTV": 2.0, "pnlFixed": 0.0, "trades": 4, "wins": 2}], "equity": [{"x": "May 2026", "tv": 2.0, "fixed": 0.0}]};
+const D={"updated": "13/05/2026 10:56 UTC", "globalMetrics": {"total": 4, "wins": 2, "losses": 2, "winrate": 50.0, "profitFactor": 3.28, "firstDate": "12/05/2026", "cumTV": 1.39}, "monthMetrics": {"total": 4, "wins": 2, "losses": 2, "cumTV": 1.39, "profitFactor": 3.28, "winrate": 50.0}, "weekly": [{"label": "Week 1  ·  May 1–7", "pnlTV": 0, "trades": 0, "wins": 0}, {"label": "Week 2  ·  May 8–14", "pnlTV": 1.39, "trades": 4, "wins": 2}, {"label": "Week 3  ·  May 15–21", "pnlTV": 0, "trades": 0, "wins": 0}, {"label": "Week 4  ·  May 22–28", "pnlTV": 0, "trades": 0, "wins": 0}, {"label": "Week 5  ·  May 29–31", "pnlTV": 0, "trades": 0, "wins": 0}], "monthly": [{"label": "May 2026", "pnlTV": 1.39, "trades": 4, "wins": 2}], "equity": [{"x": "May 2026", "tv": 1.39}]};
 document.getElementById("ts").textContent=D.updated;
 document.getElementById("since").textContent=D.globalMetrics.firstDate;
 const gm=D.globalMetrics, mm=D.monthMetrics;
@@ -162,44 +160,81 @@ function fmtPct(v){return(v>=0?"+":"")+Number(v).toFixed(2)+"%"}
 function clr(v){return v>0?"var(--green)":v<0?"var(--red)":"var(--text-muted)"}
  
 const kpiData=[
-  {label:"Win Rate",     val:gm.winrate+"%",       cls:"blue",   note:"All time · updates per trade"},
-  {label:"Profit Factor",val:mm.profitFactor||"—", cls:"purple", note:"Current month · resets monthly"},
-  {label:"Month Trades", val:mm.total,              cls:"",       note:"Resets each month"},
-  {label:"Month Wins",   val:mm.wins,               cls:"green",  note:"Resets each month"},
-  {label:"Month Losses", val:mm.losses,             cls:"red",    note:"Resets each month"},
-  {label:"Month TV %",   val:fmtPct(mm.cumTV||0),   cls:(mm.cumTV||0)>=0?"green":"red", note:"Monthly cumul. Fixed TP/SL%"},
-  {label:"Month Fixed %",val:fmtPct(mm.cumFixed||0),cls:(mm.cumFixed||0)>=0?"green":"red",note:"Monthly cumul. TP/SL%"},
+  {label:"Win Rate",     val:gm.winrate+"%",      cls:"blue",   note:"All time · updates per trade"},
+  {label:"Profit Factor",val:mm.profitFactor||"—",cls:"purple", note:"Current month · resets monthly"},
+  {label:"Month Trades", val:mm.total,             cls:"",       note:"Resets each month"},
+  {label:"Month Wins",   val:mm.wins,              cls:"green",  note:"Resets each month"},
+  {label:"Month Losses", val:mm.losses,            cls:"red",    note:"Resets each month"},
+  {label:"Month TV %",   val:fmtPct(mm.cumTV||0),  cls:(mm.cumTV||0)>=0?"green":"red", note:"Cumulative TV % this month"},
 ];
 const kRow=document.getElementById("kpis");
-kpiData.forEach(k=>{kRow.innerHTML+=`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-value ${k.cls}">${k.val}</div><div class="kpi-note">${k.note}</div></div>`;});
+kpiData.forEach(k=>{
+  kRow.innerHTML+=`<div class="kpi-card"><div class="kpi-label">${k.label}</div><div class="kpi-value ${k.cls}">${k.val}</div><div class="kpi-note">${k.note}</div></div>`;
+});
  
 const wEl=document.getElementById("weekly-content");
 const activeWeeks=D.weekly?D.weekly.filter(w=>w.trades>0):[];
-if(activeWeeks.length===0){wEl.innerHTML=`<div class="pnl-empty">No trades this month yet</div>`;}
-else{D.weekly.forEach(w=>{if(w.trades===0)return;wEl.innerHTML+=`<div class="pnl-row"><span class="pnl-label">${w.label}<span class="pnl-meta">${w.trades}T · ${w.wins}W</span></span><div class="pnl-vals"><span class="pnl-val" style="color:${clr(w.pnlFixed)}">${fmtPct(w.pnlFixed)} <span style="font-size:9px;color:var(--text-dim)">Fixed</span></span><span class="pnl-val-fix" style="color:${clr(w.pnlTV)}">${fmtPct(w.pnlTV)} <span style="font-size:9px;color:var(--text-dim)">TV</span></span></div></div>`;});}
+if(activeWeeks.length===0){
+  wEl.innerHTML=`<div class="pnl-empty">No trades this month yet</div>`;
+}else{
+  D.weekly.forEach(w=>{
+    if(w.trades===0)return;
+    wEl.innerHTML+=`
+      <div class="pnl-row">
+        <span class="pnl-label">${w.label}<span class="pnl-meta">${w.trades}T · ${w.wins}W</span></span>
+        <span class="pnl-val" style="color:${clr(w.pnlTV)}">${fmtPct(w.pnlTV)}</span>
+      </div>`;
+  });
+}
  
 const mEl=document.getElementById("monthly-content");
-if(!D.monthly||D.monthly.length===0){mEl.innerHTML=`<div class="pnl-empty">No history yet</div>`;}
-else{[...D.monthly].reverse().forEach(m=>{mEl.innerHTML+=`<div class="pnl-row"><span class="pnl-label">${m.label}<span class="pnl-meta">${m.trades}T · ${m.wins}W</span></span><div class="pnl-vals"><span class="pnl-val" style="color:${clr(m.pnlFixed)}">${fmtPct(m.pnlFixed)} <span style="font-size:9px;color:var(--text-dim)">Fixed</span></span><span class="pnl-val-fix" style="color:${clr(m.pnlTV)}">${fmtPct(m.pnlTV)} <span style="font-size:9px;color:var(--text-dim)">TV</span></span></div></div>`;});}
+if(!D.monthly||D.monthly.length===0){
+  mEl.innerHTML=`<div class="pnl-empty">No history yet</div>`;
+}else{
+  [...D.monthly].reverse().forEach(m=>{
+    mEl.innerHTML+=`
+      <div class="pnl-row">
+        <span class="pnl-label">${m.label}<span class="pnl-meta">${m.trades}T · ${m.wins}W</span></span>
+        <span class="pnl-val" style="color:${clr(m.pnlTV)}">${fmtPct(m.pnlTV)}</span>
+      </div>`;
+  });
+}
  
 const eq=D.equity||[];
 const ctx=document.getElementById("eqChart").getContext("2d");
-const gTV=ctx.createLinearGradient(0,0,0,260);
-gTV.addColorStop(0,"rgba(99,179,237,0.18)");gTV.addColorStop(1,"rgba(99,179,237,0.0)");
-const gFix=ctx.createLinearGradient(0,0,0,260);
-gFix.addColorStop(0,"rgba(34,211,238,0.12)");gFix.addColorStop(1,"rgba(34,211,238,0.0)");
-const datasets=[
-  {label:"Fixed %",data:eq.map(p=>p.fixed),borderColor:"#63b3ed",borderWidth:2,backgroundColor:gTV,fill:true,pointRadius:eq.length<15?5:3,pointBackgroundColor:"#63b3ed",pointBorderColor:"#020409",pointBorderWidth:2,tension:.35},
-  {label:"TV %",data:eq.map(p=>p.tv),borderColor:"#22d3ee",borderWidth:2,backgroundColor:gFix,fill:true,pointRadius:eq.length<15?5:3,pointBackgroundColor:"#22d3ee",pointBorderColor:"#020409",pointBorderWidth:2,tension:.35,borderDash:[5,3]}
-];
+const grad=ctx.createLinearGradient(0,0,0,260);
+grad.addColorStop(0,"rgba(99,179,237,0.18)");
+grad.addColorStop(1,"rgba(99,179,237,0.0)");
 new Chart(ctx,{
-  type:"line",data:{labels:eq.map(p=>p.x),datasets:datasets},
-  options:{responsive:true,maintainAspectRatio:false,
+  type:"line",
+  data:{
+    labels:eq.map(p=>p.x),
+    datasets:[{
+      label:"TV %",
+      data:eq.map(p=>p.tv),
+      borderColor:"#63b3ed",
+      borderWidth:2,
+      backgroundColor:grad,
+      fill:true,
+      pointRadius:eq.length<15?5:3,
+      pointBackgroundColor:"#63b3ed",
+      pointBorderColor:"#020409",
+      pointBorderWidth:2,
+      tension:.35
+    }]
+  },
+  options:{
+    responsive:true,maintainAspectRatio:false,
     plugins:{
-      legend:{display:true,labels:{color:"#7a90b5",font:{family:"JetBrains Mono",size:10},boxWidth:12,padding:16}},
-      tooltip:{backgroundColor:"rgba(8,12,23,0.95)",borderColor:"rgba(99,179,237,0.2)",borderWidth:1,
-        titleFont:{family:"JetBrains Mono",size:10},bodyFont:{family:"JetBrains Mono",size:12},
-        callbacks:{label:c=>" "+c.dataset.label+": "+(c.parsed.y>=0?"+":"")+c.parsed.y.toFixed(2)+"%"}}
+      legend:{display:false},
+      tooltip:{
+        backgroundColor:"rgba(8,12,23,0.95)",
+        borderColor:"rgba(99,179,237,0.2)",
+        borderWidth:1,
+        titleFont:{family:"JetBrains Mono",size:10},
+        bodyFont:{family:"JetBrains Mono",size:12},
+        callbacks:{label:c=>" TV %: "+(c.parsed.y>=0?"+":"")+c.parsed.y.toFixed(2)+"%"}
+      }
     },
     scales:{
       x:{ticks:{color:"#3d4e6a",font:{family:"JetBrains Mono",size:10}},grid:{color:"rgba(255,255,255,0.03)"}},
